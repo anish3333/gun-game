@@ -1,69 +1,128 @@
 package network
 
 import (
+	"encoding/json"
 	"log"
-	// "time"
+	"strings"
+
+	"github.com/anish3333/gun-game/go-server/internal/game"
 	"github.com/gorilla/websocket"
 )
 
-// Client acts as the middleman between the websocket connection and the game room.
 type Client struct {
-	ID   string
-	Room *Room
-	Conn *websocket.Conn
-	
-	// Send is a buffered channel for outbound messages.
-	// Instead of writing directly to the websocket from multiple places (which crashes Go),
-	// we push messages into this channel, and the WritePump handles the actual transmission.
-	Send chan []byte
+	ID      string
+	Weapon  string
+	Manager *Manager
+	Room    *Room
+	Conn    *websocket.Conn
+	Send    chan []byte
 }
 
-// ReadPump pumps messages from the websocket connection to the Room.
 func (c *Client) ReadPump() {
-	// Defer guarantees we clean up if the loop breaks or the client disconnects
 	defer func() {
-		c.Room.Unregister <- c
+		if c.Room != nil { c.Room.Unregister <- c }
 		c.Conn.Close()
 	}()
 
 	for {
-		_, message, err := c.Conn.ReadMessage()
-		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("Error reading message: %v", err)
-			}
-			break
-		}
+		_, rawMessage, err := c.Conn.ReadMessage()
+		if err != nil { break }
+
+		var msg IncomingMessage
+		if err := json.Unmarshal(rawMessage, &msg); err != nil { continue }
 		
-		// For now, we just pass the raw JSON byte array to the room's broadcast channel.
-		// Later, we will unmarshal this JSON to check if it's "create_room", "input", etc.
-		c.Room.Broadcast <- message
+		// Inject the Client ID into the message so the Room knows who sent it
+		msg.PlayerID = c.ID 
+
+		switch msg.Type {
+		case "ping":
+			pong, _ := json.Marshal(OutgoingMessage{Type: "pong"})
+			c.Send <- pong
+
+		case "list_rooms":
+			res, _ := json.Marshal(RoomListMessage{Type: "room_list", Rooms: c.Manager.RoomList()})
+			c.Send <- res
+
+		case "create_room":
+			if c.Room != nil { continue }
+			c.Weapon = pickWeapon(msg.Weapon)
+
+			c.Room = c.Manager.CreateRoom()
+			c.Room.Register <- c
+
+			log.Printf("[%s] created by %s (%s)", c.Room.ID, c.ID, c.Weapon)
+			res, _ := json.Marshal(OutgoingMessage{Type: "room_created", Code: c.Room.ID, PlayerID: c.ID, Weapon: c.Weapon, WaitingForOpponent: true})
+			c.Send <- res
+
+		case "join_room":
+			if c.Room != nil { continue }
+			c.Weapon = pickWeapon(msg.Weapon)
+
+			code := strings.ToUpper(strings.TrimSpace(msg.Code))
+			room, exists := c.Manager.GetRoom(code)
+			if !exists {
+				res, _ := json.Marshal(OutgoingMessage{Type: "error", Message: "Room not found."})
+				c.Send <- res
+				continue
+			}
+			if len(room.Clients) >= 2 {
+				res, _ := json.Marshal(OutgoingMessage{Type: "error", Message: "Room is full."})
+				c.Send <- res
+				continue
+			}
+			if room.Phase != "waiting" {
+				res, _ := json.Marshal(OutgoingMessage{Type: "error", Message: "Match already started."})
+				c.Send <- res
+				continue
+			}
+
+			c.Room = room
+			c.Room.Register <- c
+
+			log.Printf("[%s] joined by %s (%s)", room.ID, c.ID, c.Weapon)
+			res, _ := json.Marshal(OutgoingMessage{Type: "room_joined", Code: room.ID, PlayerID: c.ID, Weapon: c.Weapon})
+			c.Send <- res
+
+		case "input":
+			if c.Room != nil {
+				b, _ := json.Marshal(IncomingMessage{
+					Type:     "input",
+					PlayerID: c.ID,
+					Angle:    msg.Angle,
+					Shoot:    msg.Shoot,
+				})
+				c.Room.Broadcast <- b
+			}
+		}
 	}
 }
 
-// WritePump pumps messages from the Room back to the websocket connection.
-func (c *Client) WritePump() {
-	defer func() {
-		c.Conn.Close()
-	}()
+func pickWeapon(weapon string) string {
+	if weapon != "" {
+		if _, ok := game.Weapons[weapon]; ok {
+			return weapon
+		}
+	}
+	return "pistol"
+}
 
+func BuildHello(m *Manager) []byte {
+	b, _ := json.Marshal(HelloMessage{
+		Type:    "hello",
+		Weapons: game.Weapons,
+		Rooms:   m.RoomList(),
+	})
+	return b
+}
+
+func (c *Client) WritePump() {
+	defer c.Conn.Close()
 	for {
-		// This blocks until a message is pushed into the c.Send channel
 		message, ok := <-c.Send
 		if !ok {
-			// The room closed the channel.
 			c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
 			return
 		}
-
-		w, err := c.Conn.NextWriter(websocket.TextMessage)
-		if err != nil {
-			return
-		}
-		w.Write(message)
-
-		if err := w.Close(); err != nil {
-			return
-		}
+		c.Conn.WriteMessage(websocket.TextMessage, message)
 	}
 }

@@ -355,7 +355,7 @@ const COLORS = { pistol: '#4af0c8', shotgun: '#f0a84a', smg: '#a84af0', sniper: 
 
 function connect() {
   gamePhase = 'connecting';
-  ws = new WebSocket('ws://localhost:3000');
+  ws = new WebSocket('ws://localhost:3000/ws');
 
   ws.onopen = () => {
     console.log('Connected to server');
