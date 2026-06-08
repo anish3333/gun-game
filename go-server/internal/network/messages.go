@@ -19,6 +19,7 @@ type OutgoingMessage struct {
 	Code               string        `json:"code,omitempty"`
 	PlayerID           string        `json:"playerId,omitempty"`
 	KillerID           string        `json:"killerId,omitempty"`
+	WinnerID           string        `json:"winnerId,omitempty"` 
 	Weapon             string        `json:"weapon,omitempty"`
 	WaitingForOpponent bool          `json:"waitingForOpponent,omitempty"`
 	Damage             int           `json:"damage,omitempty"`

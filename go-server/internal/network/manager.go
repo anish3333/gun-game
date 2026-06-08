@@ -1,18 +1,41 @@
 package network
 
 import (
+	"sync"
+	"github.com/anish3333/gun-game/go-server/internal/db"
+	"github.com/anish3333/gun-game/go-server/internal/game"
+	"github.com/anish3333/gun-game/go-server/internal/telemetry"
 	"crypto/rand"
 	"math/big"
-	"sync"
 )
 
 type Manager struct {
-	rooms map[string]*Room
-	mu    sync.RWMutex
+	rooms         map[string]*Room
+	mu            sync.RWMutex
+	DB            *db.Database
+	PhysicsEngine game.CollisionEngine
+	Telemetry     *telemetry.Tracker    // <-- Add this
+	EngineName    string                // <-- Add this so we know what is running
 }
 
-func NewManager() *Manager {
-	return &Manager{rooms: make(map[string]*Room)}
+func NewManager(database *db.Database, defaultEngine game.CollisionEngine, engineName string) *Manager {
+	return &Manager{
+		rooms:         make(map[string]*Room),
+		DB:            database,
+		PhysicsEngine: defaultEngine,
+		EngineName:    engineName,
+	}
+}
+
+func (m *Manager) SetCollisionEngine(newEngine game.CollisionEngine, name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.PhysicsEngine = newEngine
+	m.EngineName = name
+	
+	for _, r := range m.rooms {
+		r.State.Physics = newEngine
+	}
 }
 
 func (m *Manager) CreateRoom() *Room {
@@ -61,4 +84,26 @@ func (m *Manager) generateCode() string {
 		code += string(chars[n.Int64()])
 	}
 	return code
+}
+
+func (m *Manager) GetRoomCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.rooms)
+}
+
+func (m *Manager) GetTotalClients() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	count := 0
+	for _, r := range m.rooms {
+		count += len(r.Clients)
+	}
+	return count
+}
+
+func (m *Manager) GetEngineName() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.EngineName
 }

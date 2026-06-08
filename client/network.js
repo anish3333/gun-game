@@ -4,21 +4,18 @@ import * as renderer from './renderer.js';
 
 export async function connect() {
   ui.showConnecting();
-  
+
   // 1. Check for an existing token in the browser
   let token = localStorage.getItem('recoil_token');
 
-  // 2. If no token exists, fetch a new guest identity from our Go API
+  // 2. If no token, fetch a new guest identity from the Go API
   if (!token) {
     try {
       const res = await fetch('http://localhost:3000/api/init-guest', { method: 'POST' });
       if (!res.ok) throw new Error('Failed to fetch guest token');
-      
       const data = await res.json();
       token = data.token;
-      
-      // Save it so they don't lose their identity if they refresh!
-      localStorage.setItem('recoil_token', token); 
+      localStorage.setItem('recoil_token', token);
       console.log(`Registered as new guest: ${data.display_name}`);
     } catch (err) {
       ui.showDisconnected('Authentication failed. Is the server running?');
@@ -26,11 +23,11 @@ export async function connect() {
     }
   }
 
-  // 3. Connect to WebSocket WITH the token in the URL!
+  // 3. Connect to WebSocket with token in the URL
   state.ws = new WebSocket(`ws://localhost:3000/ws?token=${token}`);
 
   state.ws.onopen = () => {
-    console.log('Securely connected to server');
+    console.log('connected to server');
   };
 
   state.ws.onmessage = (e) => {
@@ -40,8 +37,7 @@ export async function connect() {
   };
 
   state.ws.onclose = (e) => {
-    // If the server rejected the token (401 Unauthorized), clear it and reload
-    if (e.code === 1008 || e.reason.includes("Unauthorized")) {
+    if (e.code === 1008 || (e.reason && e.reason.includes('Unauthorized'))) {
       localStorage.removeItem('recoil_token');
       ui.showDisconnected('Session expired. Reloading...');
       setTimeout(() => location.reload(), 2000);
@@ -135,6 +131,11 @@ function handleMessage(msg) {
 
     case 'player_respawned':
       // client handles visually via snapshot
+      break;
+
+    case 'match_over':
+      state.gamePhase = 'finished';
+      ui.showMatchOver(msg.winnerId);
       break;
 
     case 'opponent_disconnected':

@@ -10,8 +10,10 @@ const (
 	WallBounce     = 0.82
 	GunRadius      = 32.0
 	BulletDecay    = 0.010
+	WinLimit       = 3 // Back to 3 for standard matches
 )
 
+// Weapon definitions and map remain the same
 type WeaponDef struct {
 	Label        string  `json:"label"`
 	Type         string  `json:"type"`
@@ -26,30 +28,10 @@ type WeaponDef struct {
 }
 
 var Weapons = map[string]WeaponDef{
-	"pistol": {
-		Label: "PULSAR-9", Type: "pistol",
-		FireRate: 20, RecoilForce: 3.6, BulletSpeed: 9,
-		BulletRadius: 2, Pellets: 1, Spread: 0.06, Color: "#4af0c8",
-		Desc: "fast fire · floaty kicks · high mobility",
-	},
-	"shotgun": {
-		Label: "SLEDGE-X", Type: "shotgun",
-		FireRate: 58, RecoilForce: 10, BulletSpeed: 7,
-		BulletRadius: 3, Pellets: 4, Spread: 0.38, Color: "#f0a84a",
-		Desc: "massive kick · spread shot · slow rate",
-	},
-	"smg": {
-		Label: "WASP-7", Type: "smg",
-		FireRate: 8, RecoilForce: 1.8, BulletSpeed: 11,
-		BulletRadius: 1.5, Pellets: 1, Spread: 0.10, Color: "#a84af0",
-		Desc: "rapid micro-kicks · constant drift · fast bullets",
-	},
-	"sniper": {
-		Label: "LANCE-1", Type: "sniper",
-		FireRate: 90, RecoilForce: 16, BulletSpeed: 18,
-		BulletRadius: 2, Pellets: 1, Spread: 0.01, Color: "#f04a4a",
-		Desc: "one giant kick · extreme range · high damage",
-	},
+	"pistol":  {Label: "PULSAR-9", Type: "pistol", FireRate: 20, RecoilForce: 3.6, BulletSpeed: 9, BulletRadius: 2, Pellets: 1, Spread: 0.06, Color: "#4af0c8", Desc: "fast fire · floaty kicks"},
+	"shotgun": {Label: "SLEDGE-X", Type: "shotgun", FireRate: 58, RecoilForce: 10, BulletSpeed: 7, BulletRadius: 3, Pellets: 4, Spread: 0.38, Color: "#f0a84a", Desc: "massive kick · spread shot"},
+	"smg":     {Label: "WASP-7", Type: "smg", FireRate: 8, RecoilForce: 1.8, BulletSpeed: 11, BulletRadius: 1.5, Pellets: 1, Spread: 0.10, Color: "#a84af0", Desc: "rapid micro-kicks"},
+	"sniper":  {Label: "LANCE-1", Type: "sniper", FireRate: 90, RecoilForce: 16, BulletSpeed: 18, BulletRadius: 2, Pellets: 1, Spread: 0.01, Color: "#f04a4a", Desc: "extreme range · high damage"},
 }
 
 type Player struct {
@@ -80,12 +62,20 @@ type Bullet struct {
 }
 
 type InputState struct {
-	Angle *float64; Shoot bool
+	Angle *float64
+	Shoot bool
 }
 
-// GameEvent lets the engine pass hit/death notifications back to the room
 type GameEvent struct {
-	Type     string; PlayerID string; KillerID string; Damage int; HP int
+	Type     string
+	PlayerID string
+	KillerID string
+	Damage   int
+	HP       int
+}
+
+type CollisionEngine interface {
+	ResolveCollisions(players map[string]*Player, bullets []*Bullet) []GameEvent
 }
 
 type GameState struct {
@@ -93,25 +83,31 @@ type GameState struct {
 	Bullets         []*Bullet
 	Inputs          map[string]InputState
 	BulletIDCounter int
+	Physics         CollisionEngine // INJECTED STRATEGY
 }
 
-func NewGameState() *GameState {
+func NewGameState(physicsEngine CollisionEngine) *GameState {
 	return &GameState{
 		Players: make(map[string]*Player),
 		Inputs:  make(map[string]InputState),
+		Physics: physicsEngine,
 	}
 }
 
 func (state *GameState) Tick() []GameEvent {
 	var events []GameEvent
 
-	// 1. Process Players
+	// 1. Process Player Movement & Shooting
 	for id, player := range state.Players {
-		if !player.Alive { continue }
+		if !player.Alive {
+			continue
+		}
 
 		weapon := Weapons[player.WeaponType]
 		input := state.Inputs[id]
-		if input.Angle != nil { player.Angle = *input.Angle }
+		if input.Angle != nil {
+			player.Angle = *input.Angle
+		}
 
 		player.FireTimer++
 		if input.Shoot && player.FireTimer >= weapon.FireRate {
@@ -127,7 +123,7 @@ func (state *GameState) Tick() []GameEvent {
 
 				state.Bullets = append(state.Bullets, &Bullet{
 					ID: state.BulletIDCounter, OwnerID: player.ID,
-					X: mx, Y: my, VX: math.Cos(fa)*weapon.BulletSpeed, VY: math.Sin(fa)*weapon.BulletSpeed,
+					X: mx, Y: my, VX: math.Cos(fa) * weapon.BulletSpeed, VY: math.Sin(fa) * weapon.BulletSpeed,
 					Radius: weapon.BulletRadius, Life: 1.0,
 				})
 				state.BulletIDCounter++
@@ -151,46 +147,38 @@ func (state *GameState) Tick() []GameEvent {
 		if player.Y > maxY { player.Y = maxY; player.VY = -math.Abs(player.VY) * WallBounce }
 	}
 
-	// 2. Process Bullets & Hit Detection (Reverse loop for safe deletion)
-	for i := len(state.Bullets) - 1; i >= 0; i-- {
-		b := state.Bullets[i]
-		b.X += b.VX; b.Y += b.VY; b.Life -= BulletDecay
+	// 2. Process Bullet Kinematics (Movement only, NO math calculations)
+	for _, b := range state.Bullets {
+		if b.Life <= 0 { continue }
+		b.X += b.VX
+		b.Y += b.VY
+		b.Life -= BulletDecay
 
 		if b.X < ArenaX { b.VX *= -0.9; b.X = ArenaX }
 		if b.X > ArenaX+ArenaW { b.VX *= -0.9; b.X = ArenaX + ArenaW }
 		if b.Y < ArenaY { b.VY *= -0.9; b.Y = ArenaY }
 		if b.Y > ArenaY+ArenaH { b.VY *= -0.9; b.Y = ArenaY + ArenaH }
-
-		for _, p := range state.Players {
-			if !p.Alive || b.OwnerID == p.ID || b.Life <= 0 { continue }
-			
-			dx, dy := b.X-p.X, b.Y-p.Y
-			if math.Sqrt(dx*dx+dy*dy) < 22+b.Radius {
-				dmg := 10 // default
-				if p.WeaponType == "pistol" { dmg = 12 } else if p.WeaponType == "shotgun" { dmg = 18 } else if p.WeaponType == "sniper" { dmg = 40 } else if p.WeaponType == "smg" { dmg = 7 }
-				
-				p.HP -= dmg
-				p.VX += b.VX * 0.55
-				p.VY += b.VY * 0.55
-				b.Life = -1
-				
-				if p.HP <= 0 {
-					p.Alive = false; p.HP = 0
-					if killer, ok := state.Players[b.OwnerID]; ok { killer.Score++ }
-					events = append(events, GameEvent{Type: "death", PlayerID: p.ID, KillerID: b.OwnerID})
-				} else {
-					events = append(events, GameEvent{Type: "hit", PlayerID: p.ID, Damage: dmg, HP: p.HP})
-				}
-			}
-		}
-		if b.Life <= 0 { state.Bullets = append(state.Bullets[:i], state.Bullets[i+1:]...) }
 	}
 
-	state.Inputs = make(map[string]InputState) // Clear inputs
+	// 3. Delegate to the Injected Collision Engine!
+	if state.Physics != nil {
+		collisionEvents := state.Physics.ResolveCollisions(state.Players, state.Bullets)
+		events = append(events, collisionEvents...)
+	}
+
+	// 4. Sweep Dead Bullets (Garbage Collection Phase)
+	activeBullets := state.Bullets[:0]
+	for _, b := range state.Bullets {
+		if b.Life > 0 {
+			activeBullets = append(activeBullets, b)
+		}
+	}
+	state.Bullets = activeBullets
+
+	state.Inputs = make(map[string]InputState)
 	return events
 }
 
-// RespawnPlayer resets stats
 func (p *Player) RespawnPlayer(x, y float64) {
 	p.X = x; p.Y = y
 	p.VX, p.VY = 0, 0

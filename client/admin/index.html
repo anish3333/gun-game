@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recoil Engine | Telemetry</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: monospace; background: #111; color: #eee; margin: 0; padding: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 20px; margin-bottom: 20px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; margin-bottom: 30px; }
+        .stat-box { background: #222; padding: 15px; border-radius: 6px; border: 1px solid #333; }
+        .stat-value { font-size: 24px; font-weight: bold; color: #4af0c8; margin-top: 5px; }
+        .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .chart-container { background: #222; padding: 20px; border-radius: 6px; border: 1px solid #333; height: 300px; }
+        button { background: #f0a84a; color: #111; border: none; padding: 10px 20px; font-weight: bold; font-family: monospace; cursor: pointer; border-radius: 4px; }
+        button:hover { background: #ffbd66; }
+        .status { color: #f04a4a; font-weight: bold; }
+        .status.connected { color: #4af0c8; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div>
+            <h1>Recoil Engine Telemetry</h1>
+            <span id="conn-status" class="status">Connecting...</span>
+        </div>
+        <div>
+            <button onclick="swapEngine('spatial')">Enable Spatial Hash</button>
+            <button onclick="swapEngine('brute')">Enable Brute Force</button>
+        </div>
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-box">Strategy<div class="stat-value" id="val-strategy">-</div></div>
+        <div class="stat-box">Clients (CCU)<div class="stat-value" id="val-clients">0</div></div>
+        <div class="stat-box">Active Rooms<div class="stat-value" id="val-rooms">0</div></div>
+        <div class="stat-box">Goroutines<div class="stat-value" id="val-goroutines">0</div></div>
+        <div class="stat-box">Avg Tick (µs)<div class="stat-value" id="val-tick">0</div></div>
+    </div>
+
+    <div class="charts">
+        <div class="chart-container"><canvas id="tickChart"></canvas></div>
+        <div class="chart-container"><canvas id="memChart"></canvas></div>
+    </div>
+
+    <script type="module" src="./js/dashboard.js"></script>
+</body>
+</html>

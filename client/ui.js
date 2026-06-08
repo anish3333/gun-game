@@ -87,6 +87,30 @@ export function showMatchStart(players) {
   });
 }
 
+export function showMatchOver(winnerId) {
+  const won = (winnerId === state.myId);
+
+  // Remove any stale end screen
+  document.getElementById('match-over-screen')?.remove();
+
+  const screen = document.createElement('div');
+  screen.id = 'match-over-screen';
+  screen.className = 'match-over ' + (won ? 'victory' : 'defeat');
+
+  screen.innerHTML = `
+    <div class="mo-scanlines"></div>
+    <div class="mo-content">
+      <div class="mo-eyebrow">${won ? 'enemy eliminated' : 'you were eliminated'}</div>
+      <div class="mo-verdict">${won ? 'VICTORY' : 'DEFEAT'}</div>
+      <div class="mo-line"></div>
+      <div class="mo-sub">${won ? 'recoil mastered' : 'recoil overwhelmed you'}</div>
+      <button class="mo-btn" onclick="location.reload()">RETURN TO LOBBY</button>
+    </div>
+  `;
+
+  gameWrap.appendChild(screen);
+}
+
 export function showDisconnected(reason) {
   gameWrap.style.display = 'none';
   lobbyMenu.classList.remove('active');

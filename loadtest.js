@@ -1,59 +1,47 @@
+import http from 'k6/http';
 import ws from 'k6/ws';
 import { check } from 'k6';
 
 export const options = {
-    vus: 500, // 500 players = 250 concurrent matches
-    duration: '30s', 
+    vus: 100,         
+    duration: '45s', 
 };
 
 export default function () {
-    const url = 'ws://localhost:3000/ws';
+    const res = http.post('http://localhost:3000/api/init-guest');
+    check(res, { 'logged in successfully': (r) => r.status === 200 });
+    const token = res.json('token');
 
-    const res = ws.connect(url, null, function (socket) {
-        let inGame = false;
+    const url = `ws://localhost:3000/ws?token=${token}`;
+    const wsRes = ws.connect(url, null, function (socket) {
+        
+        let angle = 0;
 
-        socket.on('message', (msg) => {
-            const data = JSON.parse(msg);
+        socket.on('open', () => {
+            
+            // 1. THE MISSING PIECE: Tell the server to put this bot in a room!
+            socket.send(JSON.stringify({ 
+                type: 'join_room', // <-- Change this to match your actual lobby command
+                weapon: 'smg' 
+            }));
 
-            // 1. When connected, ask for the room list
-            if (data.type === 'hello') {
-                socket.send(JSON.stringify({ type: 'list_rooms' }));
-            }
-
-            // 2. Try to join a random waiting room, or create one if lobby is empty
-            if (data.type === 'room_list') {
-                if (data.rooms?.length > 0) {
-                    // Pick a random room to avoid all 500 VUs trying to join the exact same one
-                    let randomRoom = data.rooms[Math.floor(Math.random() * data.rooms.length)];
-                    socket.send(JSON.stringify({ type: 'join_room', code: randomRoom.code, weapon: 'sniper' }));
-                } else {
-                    socket.send(JSON.stringify({ type: 'create_room', weapon: 'smg' }));
-                }
-            }
-
-            // 3. If we tried to join a room but someone else beat us to it, create a new one
-            if (data.type === 'error' && data.message === 'Room is full.') {
-                socket.send(JSON.stringify({ type: 'create_room', weapon: 'smg' }));
-            }
-
-            // 4. The match has begun!
-            if (data.type === 'match_start') {
-                inGame = true;
-            }
+            // 2. Wait 1 second for the server to matchmake, then start shooting
+            socket.setTimeout(function() {
+                socket.setInterval(function timeout() {
+                    angle += 0.2; 
+                    if (angle > Math.PI * 2) angle = 0;
+                    
+                    socket.send(JSON.stringify({ 
+                        type: 'input', 
+                        angle: angle, 
+                        shoot: true 
+                    }));
+                }, 33);
+            }, 1000);
         });
-
-        // 5. Spam inputs ONLY if the game has actually started
-        socket.setInterval(function timeout() {
-            if (inGame) {
-                // Spinning and shooting wildly
-                socket.send(JSON.stringify({ type: 'input', angle: Math.random() * 6.28, shoot: true }));
-            }
-        }, 33);
 
         socket.setTimeout(function () {
             socket.close();
-        }, 30000); 
+        }, 45000);
     });
-
-    check(res, { 'status is 101': (r) => r && r.status === 101 });
 }

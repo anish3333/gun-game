@@ -49,3 +49,41 @@ func (db *Database) UpdateLastLogin(ctx context.Context, id string) {
 	query := `UPDATE players SET last_login = CURRENT_TIMESTAMP WHERE id = $1;`
 	db.Pool.Exec(ctx, query, id)
 }
+
+// RecordMatchResult atomically updates both players at the end of a match
+func (db *Database) RecordMatchResult(ctx context.Context, winnerID string, loserID string) error {
+	// 1. Begin the atomic transaction
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	
+	// 2. Defer a rollback. If the function panics or returns an error before tx.Commit(), 
+	// this safely cancels all database changes.
+	defer tx.Rollback(ctx)
+
+	// 3. Update the Winner
+	winnerQuery := `
+		UPDATE players 
+		SET matches_played = matches_played + 1, 
+		    total_wins = total_wins + 1, 
+		    total_kills = total_kills + 1
+		WHERE id = $1;
+	`
+	if _, err := tx.Exec(ctx, winnerQuery, winnerID); err != nil {
+		return err // Triggers rollback
+	}
+
+	// 4. Update the Loser
+	loserQuery := `
+		UPDATE players 
+		SET matches_played = matches_played + 1
+		WHERE id = $1;
+	`
+	if _, err := tx.Exec(ctx, loserQuery, loserID); err != nil {
+		return err // Triggers rollback
+	}
+
+	// 5. If both succeeded, lock it in!
+	return tx.Commit(ctx)
+}

@@ -11,6 +11,8 @@ import (
 	"github.com/anish3333/gun-game/go-server/internal/auth"
 	"github.com/anish3333/gun-game/go-server/internal/db"
 	"github.com/anish3333/gun-game/go-server/internal/network"
+	"github.com/anish3333/gun-game/go-server/internal/engine"
+	"github.com/anish3333/gun-game/go-server/internal/telemetry"
 	"github.com/gorilla/websocket"
 	"github.com/joho/godotenv"
 )
@@ -19,7 +21,7 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-var gameManager = network.NewManager()
+var gameManager *network.Manager
 
 // 1. Global DB reference
 var database *db.Database
@@ -37,9 +39,29 @@ func main() {
 	// Gracefully close the pool when the server shuts down
 	defer database.Pool.Close()
 
+	// 1. Initialize Telemetry Tracker
+	tracker := telemetry.NewTracker()
+
+	// 2. Initialize Manager with the Brute Force default
+	defaultPhysics := engine.NewBruteForceEngine()
+	gameManager = network.NewManager(database, defaultPhysics, "BruteForce O(N^2)")
+	
+	// 3. Connect the Tracker and the Manager
+	gameManager.Telemetry = tracker
+	tracker.GetRoomCount = gameManager.GetRoomCount
+	tracker.GetClientCount = gameManager.GetTotalClients
+	tracker.GetStrategy = gameManager.GetEngineName
+
+	// 4. Start the Telemetry loop in the background
+	go tracker.Start()
+
 	port := os.Getenv("PORT")
 	http.HandleFunc("/ws", handleConnections)
 	http.HandleFunc("/api/init-guest", InitGuestHandler)
+
+	// 5. Admin endpoints
+	http.HandleFunc("/admin/metrics", tracker.HandleAdminWS)
+	http.HandleFunc("/admin/strategy", AdminSwapStrategyHandler)
 
 	log.Printf("✦ Recoil Arena GO server starting on port %s", port)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
@@ -118,4 +140,23 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 	go client.WritePump()
 	client.Send <- network.BuildHello(gameManager)
 	go client.ReadPump()
+}
+
+// AdminSwapStrategyHandler allows the dashboard to hot-swap the engine algorithm
+func AdminSwapStrategyHandler(w http.ResponseWriter, r *http.Request) {
+	// Simple CORS for the admin dashboard
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if r.Method == http.MethodOptions { return }
+
+	strategy := r.URL.Query().Get("type")
+	
+	if strategy == "spatial" {
+		gameManager.SetCollisionEngine(engine.NewSpatialHashEngine(), "SpatialHash O(N)")
+		log.Println("✦ Admin Hot-Swapped Engine -> SpatialHash")
+	} else {
+		gameManager.SetCollisionEngine(engine.NewBruteForceEngine(), "BruteForce O(N^2)")
+		log.Println("✦ Admin Hot-Swapped Engine -> BruteForce")
+	}
+	
+	w.WriteHeader(http.StatusOK)
 }

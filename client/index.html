@@ -9,199 +9,314 @@
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { background: #04060a; height: 100%; overflow: hidden; }
-body { display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: 'Share Tech Mono', monospace; }
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Share Tech Mono', monospace;
+  color: #c8d8e8;
+}
 
+/* ── OVERLAY (connecting / disconnected) ─────────────────────────── */
 #overlay {
-  position: absolute;
+  position: fixed;
   inset: 0;
   background: #04060a;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  z-index: 100;
-  gap: 16px;
+  z-index: 200;
+  gap: 14px;
 }
-.overlay-title { font-family: 'Orbitron', sans-serif; font-size: 28px; letter-spacing: 6px; color: #4af0c8; }
-.overlay-sub { font-size: 12px; letter-spacing: 3px; color: #4af0c850; }
-.overlay-status { font-size: 13px; letter-spacing: 2px; color: #4af0c880; margin-top: 8px; }
-.blink { animation: blink 1.2s infinite; }
-@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
-
-/* Lobby Styles */
-#lobby-menu {
-  display: none;
-  flex-direction: column;
-  gap: 20px;
-  max-width: 500px;
-  padding: 40px;
-  background: linear-gradient(135deg, #0a0d12, #0f1520);
-  border: 1px solid #1a2535;
-  border-radius: 8px;
-}
-#lobby-menu.active { display: flex; }
-
-.menu-section {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.menu-label { 
+.overlay-title {
   font-family: 'Orbitron', sans-serif;
-  font-size: 11px; 
-  letter-spacing: 3px; 
+  font-size: 26px;
+  letter-spacing: 6px;
   color: #4af0c8;
-  text-transform: uppercase;
 }
-
-.weapon-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-.weapon-btn {
-  padding: 12px;
-  background: #0a0f15;
-  border: 1px solid #1a2535;
-  border-radius: 4px;
-  color: #c8d8e8;
+.overlay-sub {
   font-size: 11px;
-  cursor: pointer;
-  font-family: 'Share Tech Mono', monospace;
-  transition: all 0.2s;
-  text-align: center;
+  letter-spacing: 3px;
+  color: #4af0c840;
 }
-.weapon-btn:hover {
-  border-color: #4af0c8;
-  color: #4af0c8;
-}
-.weapon-btn.selected {
-  background: #4af0c820;
-  border-color: #4af0c8;
-  color: #4af0c8;
-}
-
-.action-btns {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-.action-btn {
-  padding: 12px;
-  background: #4af0c820;
-  border: 1px solid #4af0c8;
-  border-radius: 4px;
-  color: #4af0c8;
+.overlay-status {
   font-size: 12px;
-  font-family: 'Orbitron', sans-serif;
   letter-spacing: 2px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.action-btn:hover {
-  background: #4af0c840;
-}
-.action-btn:active {
-  transform: scale(0.98);
-}
-
-#room-code-input {
-  padding: 10px;
-  background: #0a0f15;
-  border: 1px solid #1a2535;
-  border-radius: 4px;
-  color: #c8d8e8;
-  font-family: 'Share Tech Mono', monospace;
-  font-size: 12px;
-}
-#room-code-input:focus {
-  outline: none;
-  border-color: #4af0c8;
-  color: #4af0c8;
-}
-
-.room-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-height: 150px;
-  overflow-y: auto;
-}
-.room-item {
-  padding: 10px;
-  background: #0a0f15;
-  border: 1px solid #1a2535;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.room-item:hover {
-  background: #151f2a;
-  border-color: #4af0c8;
-}
-
-.error-msg {
-  color: #f04a4a;
-  font-size: 11px;
-  letter-spacing: 1px;
-  text-align: center;
-}
-
-#room-display {
-  display: none;
-  flex-direction: column;
-  gap: 16px;
-  max-width: 400px;
-  padding: 30px;
-  background: linear-gradient(135deg, #0a0d12, #0f1520);
-  border: 1px solid #1a2535;
-  border-radius: 8px;
-}
-#room-display.active { display: flex; }
-
-.room-code-box {
-  text-align: center;
-  padding: 20px;
-  background: #0a0f15;
-  border: 2px solid #4af0c8;
-  border-radius: 4px;
-}
-.room-code-label { font-size: 10px; letter-spacing: 2px; color: #4af0c850; }
-.room-code-value { 
-  font-family: 'Orbitron', sans-serif;
-  font-size: 32px; 
-  letter-spacing: 4px; 
-  color: #4af0c8;
+  color: #4af0c870;
   margin-top: 8px;
 }
 
-.waiting-text {
-  text-align: center;
-  font-size: 12px;
-  letter-spacing: 2px;
-  color: #4af0c880;
-  margin: 10px 0;
-}
-.waiting-text.blink { animation: blink 1.2s infinite; }
+/* ── SHARED BLINK ─────────────────────────────────────────────────── */
+.blink { animation: blink 1.2s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
 
+/* ── LOBBY MENU ───────────────────────────────────────────────────── */
+#lobby-menu {
+  display: none;
+  flex-direction: column;
+  gap: 22px;
+  width: 480px;
+  padding: 32px 36px;
+  background: #080c12;
+  border: 1px solid #1a2535;
+  border-radius: 8px;
+  position: relative;
+}
+#lobby-menu::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #4af0c8, transparent);
+  border-radius: 8px 8px 0 0;
+}
+#lobby-menu.active { display: flex; }
+
+.menu-title {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 18px;
+  letter-spacing: 5px;
+  color: #4af0c8;
+  margin-bottom: 4px;
+}
+.menu-sub {
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: #4af0c840;
+  margin-top: -16px;
+}
+.section-label {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 9px;
+  letter-spacing: 3px;
+  color: #4af0c870;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.menu-section { display: flex; flex-direction: column; gap: 6px; }
+.menu-divider {
+  height: 1px;
+  background: #1a2535;
+  margin: 2px 0;
+}
+
+/* ── WEAPON GRID ──────────────────────────────────────────────────── */
+.weapon-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.weapon-btn {
+  padding: 12px 14px;
+  background: #0a0f18;
+  border: 1px solid #1a2535;
+  border-radius: 5px;
+  cursor: pointer;
+  font-family: 'Share Tech Mono', monospace;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+.weapon-btn:hover {
+  background: #0f1a28;
+  border-color: #3a6060;
+}
+.weapon-btn.selected {
+  background: #0a1a1a;
+  border-color: #4af0c8;
+}
+.wbtn-name {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 11px;
+  letter-spacing: 2px;
+  margin-bottom: 4px;
+}
+.wbtn-desc {
+  font-size: 9px;
+  letter-spacing: 0.5px;
+  color: #4a6070;
+  line-height: 1.5;
+}
+
+/* ── ACTION BUTTONS ───────────────────────────────────────────────── */
+.action-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.action-btn {
+  padding: 11px;
+  background: transparent;
+  border: 1px solid #4af0c860;
+  border-radius: 5px;
+  color: #4af0c8;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 10px;
+  letter-spacing: 2px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.08s;
+}
+.action-btn:hover { background: #4af0c815; border-color: #4af0c8; }
+.action-btn:active { transform: scale(0.97); }
+.action-btn.full { grid-column: 1 / -1; }
+
+/* ── JOIN ROW ─────────────────────────────────────────────────────── */
+.join-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+#room-code-input {
+  padding: 10px 12px;
+  background: #0a0f18;
+  border: 1px solid #1a2535;
+  border-radius: 5px;
+  color: #c8d8e8;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 13px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  outline: none;
+  transition: border-color 0.15s;
+}
+#room-code-input::placeholder { color: #2a3a4a; letter-spacing: 2px; font-size: 11px; }
+#room-code-input:focus { border-color: #4af0c860; }
+#join-room-btn { white-space: nowrap; padding: 10px 16px; }
+
+/* ── ROOM LIST ────────────────────────────────────────────────────── */
+.room-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+.room-list::-webkit-scrollbar { width: 3px; }
+.room-list::-webkit-scrollbar-track { background: #0a0f18; }
+.room-list::-webkit-scrollbar-thumb { background: #2a3a50; }
+.room-item {
+  display: flex;
+  align-items: center;
+  padding: 9px 12px;
+  background: #0a0f18;
+  border: 1px solid #1a2535;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  gap: 10px;
+}
+.room-item:hover { background: #0f1a26; border-color: #4af0c860; }
+.room-item-code {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 12px;
+  letter-spacing: 3px;
+  color: #4af0c8;
+  min-width: 48px;
+}
+.room-item-status { font-size: 10px; color: #3a5060; flex: 1; }
+.room-item-join { font-size: 10px; color: #4af0c870; letter-spacing: 1px; }
+.no-rooms { font-size: 10px; color: #2a3a4a; letter-spacing: 1px; padding: 8px 0; }
+
+/* ── ERROR ────────────────────────────────────────────────────────── */
+.error-msg {
+  color: #f04a4a;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-align: center;
+  padding: 6px;
+  border: 1px solid #f04a4a30;
+  border-radius: 4px;
+  background: #1a080840;
+}
+#error-container { min-height: 0; }
+
+/* ── WAITING ROOM ─────────────────────────────────────────────────── */
+#room-display {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  width: 380px;
+  padding: 36px;
+  background: #080c12;
+  border: 1px solid #1a2535;
+  border-radius: 8px;
+  position: relative;
+}
+#room-display::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #4af0c8, transparent);
+  border-radius: 8px 8px 0 0;
+}
+#room-display.active { display: flex; }
+
+.waiting-title {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 13px;
+  letter-spacing: 4px;
+  color: #4af0c870;
+  text-transform: uppercase;
+}
+.room-code-box {
+  text-align: center;
+  padding: 20px 40px;
+  background: #04080f;
+  border: 1px solid #4af0c840;
+  border-radius: 6px;
+  width: 100%;
+}
+.room-code-label {
+  font-size: 9px;
+  letter-spacing: 3px;
+  color: #4af0c850;
+  margin-bottom: 10px;
+}
+.room-code-value {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 38px;
+  letter-spacing: 8px;
+  color: #4af0c8;
+  text-shadow: 0 0 20px #4af0c840;
+}
+#waiting-status {
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: #4af0c860;
+}
+.waiting-hint {
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: #2a3a4a;
+  text-align: center;
+}
+
+/* ── GAME WRAP ────────────────────────────────────────────────────── */
 #game-wrap {
   position: relative;
   width: 680px;
 }
-canvas { display: block; border-radius: 8px; }
+canvas { display: block; }
 
 #hud-top {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 6px 12px;
+  padding: 6px 14px;
   background: #0a0d12;
   border-radius: 8px 8px 0 0;
   border: 1px solid #1a2230;
   border-bottom: none;
 }
-.hud-title { font-family: 'Orbitron', sans-serif; font-size: 10px; letter-spacing: 3px; color: #4af0c860; }
-#ping-display { font-size: 10px; color: #4af0c850; letter-spacing: 1px; }
+.hud-title {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: #4af0c860;
+}
+#ping-display { font-size: 10px; color: #4af0c840; letter-spacing: 1px; }
 
 #hud-bottom {
   display: grid;
@@ -220,106 +335,262 @@ canvas { display: block; border-radius: 8px; }
   align-items: center;
   gap: 10px;
 }
-.player-hud.you { border-top: 2px solid #4af0c8; }
+.player-hud.you      { border-top: 2px solid #4af0c8; }
 .player-hud.opponent { border-top: 2px solid #f0a84a; }
-.phud-info { flex: 1; }
-.phud-name { font-family: 'Orbitron', sans-serif; font-size: 10px; color: #c8d8e8; letter-spacing: 1px; }
+
+.phud-info { flex: 1; min-width: 0; }
+.phud-name {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 10px;
+  color: #c8d8e8;
+  letter-spacing: 1px;
+}
 .phud-tag { font-size: 9px; color: #2a4050; margin-top: 2px; letter-spacing: 1px; }
-.hp-bar-wrap { width: 80px; }
+
+.hp-bar-wrap { width: 80px; flex-shrink: 0; }
 .hp-bar-bg { height: 3px; background: #1a2530; border-radius: 2px; overflow: hidden; }
-.hp-bar-fill { height: 100%; border-radius: 2px; transition: width 0.1s; }
+.hp-bar-fill { height: 100%; border-radius: 2px; transition: width 0.12s; }
 .hp-fill-you { background: #4af0c8; }
 .hp-fill-opp { background: #f0a84a; }
-.hp-val { font-size: 10px; color: #4af0c8; text-align: right; margin-top: 2px; }
+.hp-val { font-size: 10px; color: #4af0c8; text-align: right; margin-top: 3px; }
 .hp-val.opp { color: #f0a84a; }
-.score-display { font-family: 'Orbitron', sans-serif; font-size: 18px; color: #4af0c8; min-width: 24px; text-align: right; }
+
+.score-display {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 18px;
+  color: #4af0c8;
+  min-width: 24px;
+  text-align: right;
+  flex-shrink: 0;
+}
 .score-display.opp { color: #f0a84a; }
 
-#aim-hint { 
-  position: absolute; 
-  bottom: 52px; 
-  left: 50%; 
+#aim-hint {
+  position: absolute;
+  bottom: 52px;
+  left: 50%;
   transform: translateX(-50%);
-  font-size: 9px; 
-  letter-spacing: 2px; 
-  color: #2a3a4a; 
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: #1a2a3a;
   pointer-events: none;
   white-space: nowrap;
 }
+
+/* ── MATCH OVER SCREEN ────────────────────────────────────────────── */
+.match-over {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  border-radius: 0 0 8px 8px; /* match canvas rounding */
+  animation: mo-fade-in 0.4s ease forwards;
+}
+.match-over.victory { background: radial-gradient(ellipse at 50% 40%, #0a2a20 0%, #04060a 70%); }
+.match-over.defeat  { background: radial-gradient(ellipse at 50% 40%, #2a0a0a 0%, #04060a 70%); }
+
+@keyframes mo-fade-in {
+  from { opacity: 0; transform: scale(1.03); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* CRT scanlines overlay */
+.mo-scanlines {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px, transparent 3px,
+    rgba(0,0,0,0.08) 3px, rgba(0,0,0,0.08) 4px
+  );
+  pointer-events: none;
+}
+
+.mo-content {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+}
+
+.mo-eyebrow {
+  font-size: 10px;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+}
+.victory .mo-eyebrow { color: #4af0c870; }
+.defeat  .mo-eyebrow { color: #f04a4a70; }
+
+.mo-verdict {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 52px;
+  font-weight: 700;
+  letter-spacing: 10px;
+  line-height: 1;
+  animation: mo-flicker 3s ease-in-out infinite;
+}
+.victory .mo-verdict {
+  color: #4af0c8;
+  text-shadow: 0 0 30px #4af0c870, 0 0 60px #4af0c830;
+}
+.defeat .mo-verdict {
+  color: #f04a4a;
+  text-shadow: 0 0 30px #f04a4a70, 0 0 60px #f04a4a30;
+}
+
+@keyframes mo-flicker {
+  0%,100% { opacity: 1; }
+  92%      { opacity: 1; }
+  93%      { opacity: 0.6; }
+  94%      { opacity: 1; }
+  96%      { opacity: 0.7; }
+  97%      { opacity: 1; }
+}
+
+.mo-line {
+  width: 120px;
+  height: 1px;
+  margin: 2px 0;
+}
+.victory .mo-line { background: linear-gradient(90deg, transparent, #4af0c860, transparent); }
+.defeat  .mo-line { background: linear-gradient(90deg, transparent, #f04a4a60, transparent); }
+
+.mo-sub {
+  font-size: 11px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+}
+.victory .mo-sub { color: #4af0c850; }
+.defeat  .mo-sub { color: #f04a4a50; }
+
+.mo-btn {
+  margin-top: 10px;
+  padding: 11px 28px;
+  background: transparent;
+  border-radius: 5px;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 10px;
+  letter-spacing: 3px;
+  cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s, transform 0.08s;
+}
+.victory .mo-btn {
+  border: 1px solid #4af0c870;
+  color: #4af0c8;
+}
+.victory .mo-btn:hover {
+  background: #4af0c815;
+  box-shadow: 0 0 16px #4af0c830;
+}
+.defeat .mo-btn {
+  border: 1px solid #f04a4a70;
+  color: #f04a4a;
+}
+.defeat .mo-btn:hover {
+  background: #f04a4a15;
+  box-shadow: 0 0 16px #f04a4a30;
+}
+.mo-btn:active { transform: scale(0.97); }
 </style>
 </head>
 <body>
 
+<!-- Connecting / error overlay -->
 <div id="overlay">
   <div class="overlay-title">RECOIL // ARENA</div>
   <div class="overlay-sub">— recoil is movement —</div>
   <div class="overlay-status blink" id="overlay-status">connecting to server...</div>
 </div>
 
-<!-- Lobby Menu -->
+<!-- Lobby -->
 <div id="lobby-menu">
-  <div class="overlay-title">RECOIL // ARENA</div>
-  
+  <div>
+    <div class="menu-title">RECOIL // ARENA</div>
+    <div class="menu-sub">— recoil is movement —</div>
+  </div>
+
   <div class="menu-section">
-    <div class="menu-label">SELECT WEAPON</div>
-    <div class="weapon-grid" id="weapon-grid"></div>
+    <div class="section-label">Select Weapon</div>
+    <div class="weapon-grid" id="weapon-grid">
+      <!-- populated by ui.js -->
+    </div>
+  </div>
+
+  <div class="menu-divider"></div>
+
+  <div class="menu-section">
+    <div class="section-label">Create Match</div>
+    <button class="action-btn full" id="create-room-btn">CREATE ROOM</button>
+  </div>
+
+  <div class="menu-section">
+    <div class="section-label">Join by Code</div>
+    <div class="join-row">
+      <input type="text" id="room-code-input" placeholder="ENTER CODE" maxlength="4" autocomplete="off" spellcheck="false">
+      <button class="action-btn" id="join-room-btn">JOIN</button>
+    </div>
+  </div>
+
+  <div class="menu-section">
+    <div class="section-label">Open Rooms</div>
+    <div class="room-list" id="room-list">
+      <div class="no-rooms">no open rooms · create one above</div>
+    </div>
   </div>
 
   <div id="error-container"></div>
-
-  <div class="menu-section">
-    <div class="menu-label">CREATE NEW MATCH</div>
-    <button class="action-btn" id="create-room-btn">CREATE ROOM</button>
-  </div>
-
-  <div class="menu-section">
-    <div class="menu-label">OR JOIN EXISTING</div>
-    <input type="text" id="room-code-input" placeholder="ENTER ROOM CODE" maxlength="4">
-    <button class="action-btn" id="join-room-btn">JOIN ROOM</button>
-  </div>
-
-  <div class="menu-section">
-    <div class="menu-label">AVAILABLE ROOMS</div>
-    <div class="room-list" id="room-list"></div>
-  </div>
 </div>
 
-<!-- Room Display (waiting for opponent) -->
+<!-- Waiting for opponent -->
 <div id="room-display">
-  <div class="overlay-title">WAITING FOR OPPONENT</div>
+  <div class="waiting-title">Waiting for Opponent</div>
   <div class="room-code-box">
     <div class="room-code-label">ROOM CODE</div>
-    <div class="room-code-value" id="room-code-display"></div>
+    <div class="room-code-value" id="room-code-display">····</div>
   </div>
-  <div class="waiting-text blink">connecting...</div>
+  <div id="waiting-status" class="blink">connecting...</div>
+  <div class="waiting-hint">share this code · both players choose their weapon</div>
 </div>
 
-<div id="game-wrap">
+<!-- Game -->
+<div id="game-wrap" style="display:none">
   <div id="hud-top">
     <div class="hud-title">RECOIL // ARENA</div>
     <div id="ping-display">ping: —</div>
   </div>
+
   <canvas id="arena" width="680" height="480"></canvas>
-  <div id="aim-hint">MOVE MOUSE TO AIM · CLICK TO FIRE</div>
+  <div id="aim-hint">MOVE MOUSE TO AIM · HOLD CLICK TO FIRE</div>
+
   <div id="hud-bottom">
+    <!-- You -->
     <div class="player-hud you">
       <div class="phud-info">
         <div class="phud-name" id="you-name">YOU</div>
-        <div class="phud-tag" id="you-weapon">—</div>
+        <div class="phud-tag"  id="you-weapon">—</div>
       </div>
       <div class="hp-bar-wrap">
-        <div class="hp-bar-bg"><div class="hp-bar-fill hp-fill-you" id="hp-you" style="width:100%"></div></div>
-        <div class="hp-val" id="hp-you-val">100</div>
+        <div class="hp-bar-bg">
+          <div class="hp-bar-fill hp-fill-you" id="hp-you" style="width:100%"></div>
+        </div>
+        <div class="hp-val you-val" id="hp-you-val">100</div>
       </div>
       <div class="score-display" id="score-you">0</div>
     </div>
+    <!-- Opponent -->
     <div class="player-hud opponent">
       <div class="phud-info">
         <div class="phud-name" id="opp-name">OPPONENT</div>
-        <div class="phud-tag" id="opp-weapon">—</div>
+        <div class="phud-tag"  id="opp-weapon">—</div>
       </div>
       <div class="hp-bar-wrap">
-        <div class="hp-bar-bg"><div class="hp-bar-fill hp-fill-opp" id="hp-opp" style="width:100%"></div></div>
+        <div class="hp-bar-bg">
+          <div class="hp-bar-fill hp-fill-opp" id="hp-opp" style="width:100%"></div>
+        </div>
         <div class="hp-val opp" id="hp-opp-val">100</div>
       </div>
       <div class="score-display opp" id="score-opp">0</div>

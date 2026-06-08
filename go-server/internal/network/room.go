@@ -5,6 +5,7 @@ import (
 	"log"
 	"math/rand"
 	"time"
+	"context"
 
 	"github.com/anish3333/gun-game/go-server/internal/game"
 )
@@ -29,7 +30,7 @@ func NewRoom(id string, m *Manager) *Room {
 		Phase:      "waiting",
 		Clients:    make(map[*Client]string),
 		Manager:    m,
-		State:      game.NewGameState(),
+		State:       game.NewGameState(m.PhysicsEngine),
 		Broadcast:  make(chan []byte, 64),
 		Register:   make(chan *Client),
 		Unregister: make(chan *Client),
@@ -119,11 +120,53 @@ func (r *Room) Run() {
 		case <-ticker.C:
 			if r.Phase != "playing" { continue }
 
+			// --- TELEMETRY INJECTION START ---
+			start := time.Now() 
+			
 			// 1. Calculate Math
 			events := r.State.Tick()
 
+			// Record exactly how long the math took
+			if r.Manager.Telemetry != nil {
+				r.Manager.Telemetry.RecordTick(time.Since(start))
+			}
+			// --- TELEMETRY INJECTION END ---
 			// 2. Handle Events
 			for _, ev := range events {
+				if ev.Type == "match_over" {
+					r.Phase = "finished" // Stop the physics ticker
+					
+					// Find the loser's ID
+					var loserID string
+					for id := range r.State.Players {
+						if id != ev.PlayerID { loserID = id }
+					}
+			
+					// 1. Alert the clients immediately
+					overMsg, _ := json.Marshal(OutgoingMessage{Type: "match_over", WinnerID: ev.PlayerID})
+					r.sendToAll(overMsg)
+			
+					// 2. Fire-and-forget the database transaction
+					go func(winner, loser string) {
+						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						defer cancel()
+						
+						err := r.Manager.DB.RecordMatchResult(ctx, winner, loser)
+						if err != nil {
+							log.Printf("[%s] Failed to save match results: %v", r.ID, err)
+						} else {
+							log.Printf("[%s] Match results saved. Winner: %s", r.ID, winner)
+						}
+					}(ev.PlayerID, loserID)
+			
+					// 3. Boot players and close the room after 3 seconds
+					time.AfterFunc(3*time.Second, func() {
+						for client := range r.Clients {
+							r.Unregister <- client
+						}
+					})
+					break // Exit the event loop
+				}
 				if ev.Type == "death" {
 					deathMsg, _ := json.Marshal(OutgoingMessage{Type: "player_died", PlayerID: ev.PlayerID, KillerID: ev.KillerID})
 					r.sendToAll(deathMsg)
