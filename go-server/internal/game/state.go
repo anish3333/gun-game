@@ -1,6 +1,8 @@
 package game
 
-import "math"
+import (
+	"math"
+)
 
 const (
 	ArenaX, ArenaY = 30.0, 30.0
@@ -72,10 +74,6 @@ type GameEvent struct {
 	KillerID string
 	Damage   int
 	HP       int
-}
-
-type CollisionEngine interface {
-	ResolveCollisions(players map[string]*Player, bullets []*Bullet) []GameEvent
 }
 
 type GameState struct {
@@ -162,8 +160,46 @@ func (state *GameState) Tick() []GameEvent {
 
 	// 3. Delegate to the Injected Collision Engine!
 	if state.Physics != nil {
-		collisionEvents := state.Physics.ResolveCollisions(state.Players, state.Bullets)
-		events = append(events, collisionEvents...)
+		hits := state.Physics.DetectCollisions(state.Players, state.Bullets)
+		for _, hit := range hits {
+			hit.Bullet.Life = -1
+			hit.Target.HP -= DamageForWeapon(hit.Target.WeaponType)
+			hit.Target.VX += hit.Bullet.VX * 0.55
+			hit.Target.VY += hit.Bullet.VY * 0.55
+			hit.Bullet.Life = -1
+
+			if hit.Target.HP <= 0 {
+				hit.Target.HP = 0
+				hit.Target.Alive = false
+
+				events = append(events, GameEvent{
+					Type:     "death",
+					PlayerID: hit.Target.ID,
+					KillerID: hit.Bullet.OwnerID,
+				})
+
+				if killer, ok := state.Players[hit.Bullet.OwnerID]; ok {
+
+					killer.Score++
+
+					if killer.Score >= WinLimit {
+						events = append(events, GameEvent{
+							Type:     "match_over",
+							PlayerID: killer.ID,
+						})
+					}
+				}
+
+			} else {
+
+				events = append(events, GameEvent{
+					Type:     "hit",
+					PlayerID: hit.Target.ID,
+					Damage:   DamageForWeapon(hit.Target.WeaponType),
+					HP:       hit.Target.HP,
+				})
+			}
+		}
 	}
 
 	// 4. Sweep Dead Bullets (Garbage Collection Phase)

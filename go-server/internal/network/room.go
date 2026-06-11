@@ -22,6 +22,8 @@ type Room struct {
 	Register   chan *Client
 	Unregister chan *Client
 	Respawn    chan string // Safely triggers respawns from async timers
+	playerBuf  []game.Player
+    bulletBuf  []game.Bullet
 }
 
 func NewRoom(id string, m *Manager) *Room {
@@ -30,11 +32,13 @@ func NewRoom(id string, m *Manager) *Room {
 		Phase:      "waiting",
 		Clients:    make(map[*Client]string),
 		Manager:    m,
-		State:       game.NewGameState(m.PhysicsEngine),
+		State:      game.NewGameState(m.PhysicsEngine),
 		Broadcast:  make(chan []byte, 64),
 		Register:   make(chan *Client),
 		Unregister: make(chan *Client),
 		Respawn:    make(chan string),
+		playerBuf:  make([]game.Player, 0, 2),
+        bulletBuf:  make([]game.Bullet, 0, 64),
 	}
 }
 
@@ -184,16 +188,29 @@ func (r *Room) Run() {
 }
 
 func (r *Room) buildSnapshot() []byte {
-	pArr := make([]game.Player, 0, len(r.State.Players))
-	for _, p := range r.State.Players {
-		pArr = append(pArr, *p)
-	}
-	bArr := make([]game.Bullet, 0, len(r.State.Bullets))
-	for _, b := range r.State.Bullets {
-		bArr = append(bArr, *b)
-	}
-	snap, _ := json.Marshal(SnapshotMessage{Type: "snapshot", Players: pArr, Bullets: bArr})
-	return snap
+
+    // Reuse previous arrays
+    r.playerBuf = r.playerBuf[:0]
+
+    for _, p := range r.State.Players {
+        r.playerBuf = append(r.playerBuf, *p)
+    }
+
+    r.bulletBuf = r.bulletBuf[:0]
+
+    for _, b := range r.State.Bullets {
+        r.bulletBuf = append(r.bulletBuf, *b)
+    }
+
+    msg := SnapshotMessage{
+        Type:    "snapshot",
+        Players: r.playerBuf,
+        Bullets: r.bulletBuf,
+    }
+
+    snap, _ := json.Marshal(msg)
+
+    return snap
 }
 
 func (r *Room) sendToAll(msg []byte) {

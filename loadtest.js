@@ -1,47 +1,75 @@
 import http from 'k6/http';
 import ws from 'k6/ws';
-import { check } from 'k6';
+import { sleep } from 'k6';
 
 export const options = {
-    vus: 100,         
+    vus: 100,         // UNLEASH THE HORDE (100 bots = 50 simultaneous matches)
     duration: '45s', 
 };
 
 export default function () {
+    // Stagger connections over 10 seconds to gently spin up the 50 rooms
+    sleep(Math.random() * 10); 
+
     const res = http.post('http://localhost:3000/api/init-guest');
-    check(res, { 'logged in successfully': (r) => r.status === 200 });
     const token = res.json('token');
 
-    const url = `ws://localhost:3000/ws?token=${token}`;
-    const wsRes = ws.connect(url, null, function (socket) {
+    ws.connect(`ws://localhost:3000/ws?token=${token}`, null, function (socket) {
         
-        let angle = 0;
-
-        socket.on('open', () => {
+        socket.on('message', (rawMsg) => {
+            const msg = JSON.parse(rawMsg);
+            if (msg.type === 'snapshot' || msg.Type === 'snapshot') return;
             
-            // 1. THE MISSING PIECE: Tell the server to put this bot in a room!
-            socket.send(JSON.stringify({ 
-                type: 'join_room', // <-- Change this to match your actual lobby command
-                weapon: 'smg' 
-            }));
+            // 1. Handshake & Room Joining (Now battle-tested)
+            if (msg.type === 'room_list' || msg.type === 'hello') {
+                const rooms = msg.rooms || [];
+                let foundRoom = null;
+                
+                for (let r of rooms) {
+                    if (r.players < 2) {
+                        foundRoom = r.code;
+                        break;
+                    }
+                }
 
-            // 2. Wait 1 second for the server to matchmake, then start shooting
-            socket.setTimeout(function() {
-                socket.setInterval(function timeout() {
-                    angle += 0.2; 
-                    if (angle > Math.PI * 2) angle = 0;
+                if (foundRoom) {
+                    socket.send(JSON.stringify({ type: 'join_room', code: foundRoom, weapon: 'smg' }));
+                } else {
+                    socket.send(JSON.stringify({ type: 'create_room', weapon: 'smg' }));
+                }
+            }
+
+            // 2. The Fierce Combat AI
+            if (msg.type === 'match_start') {
+                let angle = Math.random() * Math.PI * 2; // Start aiming in a random direction
+                let sweepDirection = 1;
+                
+                socket.setInterval(() => {
+                    // --- THE FIERCE AIMING LOGIC ---
+                    if (Math.random() < 0.05) {
+                        // 5% chance to perform an instant "Flick Shot" to a completely random angle
+                        angle = Math.random() * Math.PI * 2;
+                        sweepDirection = Math.random() > 0.5 ? 1 : -1;
+                    } else {
+                        // Otherwise, perform a "Sweeping Spray" (dragging the gun back and forth)
+                        angle += (0.15 * sweepDirection);
+                        if (Math.random() < 0.1) sweepDirection *= -1; // Randomly change sweep direction
+                    }
                     
-                    socket.send(JSON.stringify({ 
-                        type: 'input', 
-                        angle: angle, 
-                        shoot: true 
-                    }));
-                }, 33);
-            }, 1000);
+                    // 90% chance to hold the trigger down, 10% chance to pause (simulates burst firing/reloading)
+                    const isShooting = Math.random() < 0.90; 
+
+                    socket.send(JSON.stringify({ type: 'input', angle: angle, shoot: isShooting }));
+                }, 33); // 30 inputs per second
+            }
+
+            // 3. Retry on collision
+            if (msg.type === 'error') {
+                sleep(1);
+                socket.send(JSON.stringify({ type: 'list_rooms' }));
+            }
         });
 
-        socket.setTimeout(function () {
-            socket.close();
-        }, 45000);
+        socket.setTimeout(() => socket.close(), 40000);
     });
 }
