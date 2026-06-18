@@ -19,6 +19,7 @@ type ServerMetrics struct {
 	RoomCount   int     `json:"roomCount"`
 	ClientCount int     `json:"clientCount"`
 	Strategy    string  `json:"strategy"`
+	Encoding    string  `json:"encoding"`
 }
 
 type Tracker struct {
@@ -33,6 +34,7 @@ type Tracker struct {
 	GetRoomCount   func() int
 	GetClientCount func() int
 	GetStrategy    func() string
+	GetEncoding    func() string
 }
 
 var upgrader = websocket.Upgrader{
@@ -95,12 +97,14 @@ func (t *Tracker) broadcastMetrics() {
 		RoomCount:   0,
 		ClientCount: 0,
 		Strategy:    "unknown",
+		Encoding:    "json",
 	}
 
 	// Safely fetch dynamic game stats
 	if t.GetRoomCount != nil { metrics.RoomCount = t.GetRoomCount() }
 	if t.GetClientCount != nil { metrics.ClientCount = t.GetClientCount() }
 	if t.GetStrategy != nil { metrics.Strategy = t.GetStrategy() }
+	if t.GetEncoding != nil { metrics.Encoding = t.GetEncoding() }
 
 	payload, _ := json.Marshal(metrics)
 

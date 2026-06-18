@@ -1,7 +1,6 @@
 package network
 
 import (
-	"encoding/json"
 	"log"
 	"strings"
 
@@ -10,91 +9,202 @@ import (
 )
 
 type Client struct {
-	ID      string
-	Weapon  string
-	Manager *Manager
-	Room    *Room
-	Conn    *websocket.Conn
-	Send    chan []byte
+	ID          string
+	DisplayName string
+	Weapon      string
+	Manager     *Manager
+	Room        *Room
+	Conn        *websocket.Conn
+	Send        chan Frame
 }
 
 func (c *Client) ReadPump() {
 	defer func() {
-		if c.Room != nil { c.Room.Unregister <- c }
+		c.Manager.UnregisterClient(c)
+		if c.Room != nil {
+			c.Room.Unregister <- c
+		}
 		c.Conn.Close()
 	}()
 
+	c.Manager.RegisterClient(c)
+
 	for {
-		_, rawMessage, err := c.Conn.ReadMessage()
-		if err != nil { break }
+		messageType, rawMessage, err := c.Conn.ReadMessage()
+		if err != nil {
+			break
+		}
+
+		binary := messageType == websocket.BinaryMessage
 
 		var msg IncomingMessage
-		if err := json.Unmarshal(rawMessage, &msg); err != nil { continue }
-		
-		// Inject the Client ID into the message so the Room knows who sent it
-		msg.PlayerID = c.ID 
+		if err := decodeIncoming(binary, rawMessage, &msg); err != nil {
+			continue
+		}
+
+		msg.PlayerID = c.ID
 
 		switch msg.Type {
 		case "ping":
-			pong, _ := json.Marshal(OutgoingMessage{Type: "pong"})
-			c.Send <- pong
-
-		case "list_rooms":
-			res, _ := json.Marshal(RoomListMessage{Type: "room_list", Rooms: c.Manager.RoomList()})
-			c.Send <- res
+			c.Send <- c.Manager.EncodeFrame(OutgoingMessage{Type: "pong"})
 
 		case "create_room":
-			if c.Room != nil { continue }
+			if c.Room != nil {
+				continue
+			}
 			c.Weapon = pickWeapon(msg.Weapon)
+			config := parseRoomConfig(msg)
 
-			c.Room = c.Manager.CreateRoom()
-			c.Room.Register <- c
+			room := c.Manager.CreateRoom(c.ID, config)
+			room.Register <- c
 
-			log.Printf("[%s] created by %s (%s)", c.Room.ID, c.ID, c.Weapon)
-			res, _ := json.Marshal(OutgoingMessage{Type: "room_created", Code: c.Room.ID, PlayerID: c.ID, Weapon: c.Weapon, WaitingForOpponent: true})
-			c.Send <- res
+			log.Printf("[%s] created by %s (%s)", room.ID, c.ID, c.Weapon)
+			c.Send <- c.Manager.EncodeFrame(OutgoingMessage{
+				Type:      "room_created",
+				Code:      room.ID,
+				PlayerID:  c.ID,
+				Weapon:    c.Weapon,
+				InviteURL: c.Manager.InviteURL(room.ID),
+			})
 
 		case "join_room":
-			if c.Room != nil { continue }
+			if c.Room != nil {
+				continue
+			}
 			c.Weapon = pickWeapon(msg.Weapon)
 
 			code := strings.ToUpper(strings.TrimSpace(msg.Code))
 			room, exists := c.Manager.GetRoom(code)
 			if !exists {
-				res, _ := json.Marshal(OutgoingMessage{Type: "error", Message: "Room not found."})
-				c.Send <- res
+				c.sendError("Room not found.")
 				continue
 			}
-			if len(room.Clients) >= 2 {
-				res, _ := json.Marshal(OutgoingMessage{Type: "error", Message: "Room is full."})
-				c.Send <- res
+
+			if exists, connected := room.PlayerStatus(c.ID); exists {
+				if !connected {
+					room.Register <- c
+					c.Send <- c.Manager.EncodeFrame(OutgoingMessage{
+						Type:     "room_joined",
+						Code:     room.ID,
+						PlayerID: c.ID,
+						Weapon:   c.Weapon,
+					})
+					continue
+				}
+				c.sendError("You are already in this room.")
 				continue
 			}
-			if room.Phase != "waiting" {
-				res, _ := json.Marshal(OutgoingMessage{Type: "error", Message: "Match already started."})
-				c.Send <- res
+
+			if !room.canJoin() {
+				room.RegisterSpectator(c)
 				continue
 			}
 
 			c.Room = room
-			c.Room.Register <- c
+			room.Register <- c
 
 			log.Printf("[%s] joined by %s (%s)", room.ID, c.ID, c.Weapon)
-			res, _ := json.Marshal(OutgoingMessage{Type: "room_joined", Code: room.ID, PlayerID: c.ID, Weapon: c.Weapon})
-			c.Send <- res
+			c.Send <- c.Manager.EncodeFrame(OutgoingMessage{
+				Type:     "room_joined",
+				Code:     room.ID,
+				PlayerID: c.ID,
+				Weapon:   c.Weapon,
+			})
+
+		case "spectate_room":
+			if c.Room != nil {
+				continue
+			}
+
+			code := strings.ToUpper(strings.TrimSpace(msg.Code))
+			room, exists := c.Manager.GetRoom(code)
+			if !exists {
+				c.sendError("Room not found.")
+				continue
+			}
+
+			if exists, connected := room.PlayerStatus(c.ID); exists && connected {
+				c.sendError("You are already playing in this room.")
+				continue
+			}
+
+			room.RegisterSpectator(c)
+
+		case "leave_room":
+			if c.Room == nil {
+				continue
+			}
+			room := c.Room
+			room.Leave <- c.ID
+
+		case "start_match":
+			if c.Room == nil {
+				continue
+			}
+			c.Room.StartMatch <- c.ID
+
+		case "update_room_config":
+			if c.Room == nil || c.Room.HostID != c.ID {
+				continue
+			}
+			config := c.Room.Config
+			if msg.ScoreLimit != nil {
+				config.ScoreLimit = clampInt(*msg.ScoreLimit, 1, 50)
+			}
+			if msg.TimeLimit != nil {
+				config.TimeLimit = clampInt(*msg.TimeLimit, 1, 30)
+			}
+			if msg.WeaponMode != "" {
+				config.WeaponMode = msg.WeaponMode
+			}
+			if msg.Map != "" {
+				config.Map = msg.Map
+			}
+			c.Room.UpdateConfig <- config
+
+		case "rematch":
+			if c.Room == nil {
+				continue
+			}
+			c.Room.Rematch <- c.ID
 
 		case "input":
 			if c.Room != nil {
-				b, _ := json.Marshal(IncomingMessage{
-					Type:     "input",
-					PlayerID: c.ID,
-					Angle:    msg.Angle,
-					Shoot:    msg.Shoot,
-				})
-				c.Room.Broadcast <- b
+				c.Room.Broadcast <- msg
 			}
 		}
 	}
+}
+
+func (c *Client) sendError(message string) {
+	c.Send <- c.Manager.EncodeFrame(OutgoingMessage{Type: "error", Message: message})
+}
+
+func parseRoomConfig(msg IncomingMessage) RoomConfig {
+	config := DefaultRoomConfig()
+	if msg.ScoreLimit != nil {
+		config.ScoreLimit = clampInt(*msg.ScoreLimit, 1, 50)
+	}
+	if msg.TimeLimit != nil {
+		config.TimeLimit = clampInt(*msg.TimeLimit, 1, 30)
+	}
+	if msg.WeaponMode != "" {
+		config.WeaponMode = msg.WeaponMode
+	}
+	if msg.Map != "" {
+		config.Map = msg.Map
+	}
+	return config
+}
+
+func clampInt(v, min, max int) int {
+	if v < min {
+		return min
+	}
+	if v > max {
+		return max
+	}
+	return v
 }
 
 func pickWeapon(weapon string) string {
@@ -106,23 +216,26 @@ func pickWeapon(weapon string) string {
 	return "pistol"
 }
 
-func BuildHello(m *Manager) []byte {
-	b, _ := json.Marshal(HelloMessage{
-		Type:    "hello",
-		Weapons: game.Weapons,
-		Rooms:   m.RoomList(),
+func BuildHello(m *Manager) Frame {
+	return m.EncodeFrame(HelloMessage{
+		Type:     "hello",
+		Weapons:  game.Weapons,
+		Encoding: m.GetCodecName(),
 	})
-	return b
 }
 
 func (c *Client) WritePump() {
 	defer c.Conn.Close()
 	for {
-		message, ok := <-c.Send
+		frame, ok := <-c.Send
 		if !ok {
 			c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
 			return
 		}
-		c.Conn.WriteMessage(websocket.TextMessage, message)
+		msgType := websocket.TextMessage
+		if frame.Binary {
+			msgType = websocket.BinaryMessage
+		}
+		c.Conn.WriteMessage(msgType, frame.Payload)
 	}
 }

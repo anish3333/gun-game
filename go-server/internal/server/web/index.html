@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<base href="/">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Recoil Arena</title>
@@ -51,7 +52,104 @@ body {
 .blink { animation: blink 1.2s ease-in-out infinite; }
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
 
-/* ── LOBBY MENU ───────────────────────────────────────────────────── */
+/* ── MENU PANELS ─────────────────────────────────────────────────── */
+.menu-panel {
+  display: none;
+  flex-direction: column;
+  gap: 18px;
+  width: 480px;
+  padding: 32px 36px;
+  background: #080c12;
+  border: 1px solid #1a2535;
+  border-radius: 8px;
+  position: relative;
+}
+.menu-panel::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #4af0c8, transparent);
+  border-radius: 8px 8px 0 0;
+}
+.menu-panel.active { display: flex; }
+
+.menu-btn {
+  padding: 12px;
+  background: transparent;
+  border: 1px solid #4af0c860;
+  border-radius: 5px;
+  color: #4af0c8;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 11px;
+  letter-spacing: 2px;
+  cursor: pointer;
+}
+.menu-btn:hover { background: #4af0c815; }
+.menu-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.config-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+}
+.config-row input, .config-row select {
+  padding: 8px 10px;
+  background: #0a0f18;
+  border: 1px solid #1a2535;
+  border-radius: 5px;
+  color: #c8d8e8;
+  font-family: 'Share Tech Mono', monospace;
+  width: 120px;
+}
+
+.lobby-player-row {
+  display: flex;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid #1a2535;
+  font-size: 12px;
+}
+.lobby-player-row.dim { opacity: 0.5; }
+.lobby-p-status { width: 20px; }
+.lobby-p-name { flex: 1; }
+.lobby-p-tag { color: #4af0c870; font-size: 10px; letter-spacing: 1px; }
+
+.lobby-config {
+  font-size: 11px;
+  line-height: 1.8;
+  color: #8aa0b0;
+}
+.lobby-invite {
+  font-size: 10px;
+  color: #4af0c860;
+  word-break: break-all;
+}
+.lobby-action-text {
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: #4af0c870;
+  text-align: center;
+}
+.finished-title {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 18px;
+  color: #4af0c8;
+  text-align: center;
+}
+.finished-winner, .finished-stats {
+  text-align: center;
+  font-size: 12px;
+}
+.finished-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+/* ── LOBBY MENU (legacy compat) ─────────────────────────────────── */
 #lobby-menu {
   display: none;
   flex-direction: column;
@@ -163,7 +261,7 @@ body {
 /* ── JOIN ROW ─────────────────────────────────────────────────────── */
 .join-row {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
   gap: 8px;
 }
 #room-code-input {
@@ -181,7 +279,16 @@ body {
 }
 #room-code-input::placeholder { color: #2a3a4a; letter-spacing: 2px; font-size: 11px; }
 #room-code-input:focus { border-color: #4af0c860; }
-#join-room-btn { white-space: nowrap; padding: 10px 16px; }
+#join-room-btn,
+#spectate-room-btn { white-space: nowrap; padding: 10px 16px; }
+#spectate-room-btn {
+  color: #f0a84a;
+  border-color: #f0a84a80;
+}
+#spectate-room-btn:hover {
+  background: #f0a84a15;
+  border-color: #f0a84a;
+}
 
 /* ── ROOM LIST ────────────────────────────────────────────────────── */
 .room-list {
@@ -506,60 +613,89 @@ canvas { display: block; }
   <div class="overlay-status blink" id="overlay-status">connecting to server...</div>
 </div>
 
-<!-- Lobby -->
-<div id="lobby-menu">
+<!-- Home -->
+<div id="home-menu" class="menu-panel">
   <div>
     <div class="menu-title">RECOIL // ARENA</div>
     <div class="menu-sub">— recoil is movement —</div>
   </div>
-
-  <div class="menu-section">
-    <div class="section-label">Select Weapon</div>
-    <div class="weapon-grid" id="weapon-grid">
-      <!-- populated by ui.js -->
-    </div>
-  </div>
-
-  <div class="menu-divider"></div>
-
-  <div class="menu-section">
-    <div class="section-label">Create Match</div>
-    <button class="action-btn full" id="create-room-btn">CREATE ROOM</button>
-  </div>
-
-  <div class="menu-section">
-    <div class="section-label">Join by Code</div>
-    <div class="join-row">
-      <input type="text" id="room-code-input" placeholder="ENTER CODE" maxlength="4" autocomplete="off" spellcheck="false">
-      <button class="action-btn" id="join-room-btn">JOIN</button>
-    </div>
-  </div>
-
-  <div class="menu-section">
-    <div class="section-label">Open Rooms</div>
-    <div class="room-list" id="room-list">
-      <div class="no-rooms">no open rooms · create one above</div>
-    </div>
-  </div>
-
+  <button class="menu-btn" id="btn-play-online">PLAY ONLINE</button>
+  <button class="menu-btn" id="btn-create-room">CREATE ROOM</button>
+  <button class="menu-btn" id="btn-matchmaking" disabled>MATCHMAKING</button>
   <div id="error-container"></div>
 </div>
 
-<!-- Waiting for opponent -->
-<div id="room-display">
-  <div class="waiting-title">Waiting for Opponent</div>
-  <div class="room-code-box">
-    <div class="room-code-label">ROOM CODE</div>
-    <div class="room-code-value" id="room-code-display">····</div>
+<!-- Join by code -->
+<div id="join-menu" class="menu-panel">
+  <div class="menu-title">PLAY ONLINE</div>
+  <div class="section-label">Select Weapon</div>
+  <div class="weapon-grid" id="weapon-grid-join"></div>
+  <div class="section-label">Join by Code</div>
+  <div class="join-row">
+    <input type="text" id="room-code-input" placeholder="ENTER CODE" maxlength="6" autocomplete="off" spellcheck="false">
+    <button class="action-btn" id="join-room-btn">JOIN</button>
+    <button class="action-btn" id="spectate-room-btn">WATCH</button>
   </div>
-  <div id="waiting-status" class="blink">connecting...</div>
-  <div class="waiting-hint">share this code · both players choose their weapon</div>
+  <div id="join-status" class="lobby-action-text"></div>
+  <button class="menu-btn" id="btn-back-home">← BACK</button>
 </div>
+
+<!-- Create room -->
+<div id="create-room-menu" class="menu-panel">
+  <div class="menu-title">CREATE ROOM</div>
+  <div class="config-row"><span>Score Limit</span><input type="number" id="cfg-score" value="10" min="1" max="50"></div>
+  <div class="config-row"><span>Time Limit</span><input type="number" id="cfg-time" value="5" min="1" max="30"><span>m</span></div>
+  <div class="config-row"><span>Weapon Mode</span>
+    <select id="cfg-weapon-mode"><option value="any">Any</option><option value="same">Same</option></select>
+  </div>
+  <div class="config-row"><span>Map</span>
+    <select id="cfg-map"><option value="arena">Arena</option></select>
+  </div>
+  <div class="section-label">Your Weapon</div>
+  <div class="weapon-grid" id="weapon-grid-create"></div>
+  <button class="action-btn full" id="create-room-submit">CREATE ROOM</button>
+  <button class="menu-btn" id="btn-back-home-create">← BACK</button>
+</div>
+
+<!-- Room lobby -->
+<div id="room-lobby" class="menu-panel" style="width:520px">
+  <div class="menu-title">Room <span id="lobby-room-code">------</span></div>
+  <button class="menu-btn" id="copy-invite-btn">COPY INVITE LINK</button>
+  <div class="lobby-invite" id="lobby-invite-url"></div>
+
+  <div class="section-label">Players</div>
+  <div id="lobby-players"></div>
+  <div id="lobby-spectators" class="lobby-action-text">0 spectators</div>
+
+  <div class="menu-divider"></div>
+  <div class="lobby-config">
+    Score limit: <span id="lobby-score-limit">10</span><br>
+    Time limit: <span id="lobby-time-limit">5m</span><br>
+    Weapon mode: <span id="lobby-weapon-mode">any</span><br>
+    Map: <span id="lobby-map">arena</span>
+  </div>
+
+  <div id="host-controls" style="display:none">
+    <div class="config-row">
+      <span>Score Limit</span>
+      <input type="number" id="host-score-limit" value="10" min="1" max="50">
+    </div>
+    <button class="action-btn full" id="start-match-btn" disabled>START MATCH</button>
+  </div>
+  <div id="lobby-action-text" class="lobby-action-text" style="display:none"></div>
+  <div id="finished-controls" style="display:none"></div>
+  <button class="menu-btn" id="leave-room-btn">LEAVE</button>
+</div>
+
+<!-- Legacy hidden -->
+<div id="lobby-menu" style="display:none"></div>
+<div id="room-display" style="display:none"></div>
 
 <!-- Game -->
 <div id="game-wrap" style="display:none">
   <div id="hud-top">
     <div class="hud-title">RECOIL // ARENA</div>
+    <div id="spectator-badge" class="lobby-action-text" style="display:none">SPECTATING</div>
     <div id="ping-display">ping: —</div>
   </div>
 
@@ -598,6 +734,6 @@ canvas { display: block; }
   </div>
 </div>
 
-<script type="module" src="./js/main.js"></script>
+<script type="module" src="/js/main.js"></script>
 </body>
 </html>

@@ -1,38 +1,51 @@
-import { state } from './state.js';
+import { state, getBaseURL, getWSURL, getInviteCodeFromPath } from './state.js';
+import { decodeWsData, encodeWsMessage, isBinaryEncoding } from './codec.js';
 import * as ui from './ui.js';
 import * as renderer from './renderer.js';
 
-export async function connect() {
-  ui.showConnecting();
-
-  // 1. Check for an existing token in the browser
+async function ensureGuestToken() {
   let token = localStorage.getItem('recoil_token');
+  if (token) return token;
 
-  // 2. If no token, fetch a new guest identity from the Go API
-  if (!token) {
-    try {
-      const res = await fetch('http://localhost:3000/api/init-guest', { method: 'POST' });
-      if (!res.ok) throw new Error('Failed to fetch guest token');
-      const data = await res.json();
-      token = data.token;
-      localStorage.setItem('recoil_token', token);
-      console.log(`Registered as new guest: ${data.display_name}`);
-    } catch (err) {
-      ui.showDisconnected('Authentication failed. Is the server running?');
-      return;
-    }
+  const res = await fetch(`${getBaseURL()}/api/init-guest`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to fetch guest token');
+  const data = await res.json();
+  token = data.token;
+  localStorage.setItem('recoil_token', token);
+  state.myName = data.display_name;
+  return token;
+}
+
+export async function connect() {
+  const inviteCode = getInviteCodeFromPath();
+  state.pendingJoinCode = inviteCode;
+
+  if (inviteCode) {
+    ui.showInviteJoining(inviteCode);
+  } else {
+    ui.showConnecting();
   }
 
-  // 3. Connect to WebSocket with token in the URL
-  state.ws = new WebSocket(`ws://localhost:3000/ws?token=${token}`);
+  let token;
+  try {
+    token = await ensureGuestToken();
+  } catch {
+    ui.showDisconnected('Authentication failed. Is the server running?');
+    return;
+  }
 
-  state.ws.onopen = () => {
-    console.log('connected to server');
-  };
+  state.ws = new WebSocket(`${getWSURL()}/ws?token=${token}`);
+  state.ws.binaryType = 'arraybuffer';
 
-  state.ws.onmessage = (e) => {
+  state.ws.onopen = () => {};
+
+  state.ws.onmessage = async (e) => {
     let msg;
-    try { msg = JSON.parse(e.data); } catch { return; }
+    try {
+      msg = await decodeWsData(e.data);
+    } catch {
+      return;
+    }
     handleMessage(msg);
   };
 
@@ -47,71 +60,157 @@ export async function connect() {
   };
 
   state.ws.onerror = () => {
-    ui.showDisconnected('cannot reach server · is it running on localhost:3000?');
+    ui.showDisconnected('cannot reach server');
   };
 }
 
 export function send(msg) {
-  if (state.ws && state.ws.readyState === 1) {
-    state.ws.send(JSON.stringify(msg));
+  if (!state.ws || state.ws.readyState !== 1) return;
+
+  const payload = encodeWsMessage(msg, state.wireEncoding);
+  if (isBinaryEncoding(state.wireEncoding)) {
+    state.ws.send(payload);
+  } else {
+    state.ws.send(payload);
   }
 }
 
+function setWireEncoding(encoding) {
+  state.wireEncoding = encoding === 'msgpack' ? 'msgpack' : 'json';
+  ui.updateWireEncoding(state.wireEncoding);
+}
+
 export function startNetworkLoops() {
-  // Input loop — 60hz
   setInterval(() => {
-    if (!state.ws || state.ws.readyState !== 1 || !state.myId || state.gamePhase !== 'in-game') return;
+    if (!state.ws || state.ws.readyState !== 1 || !state.myId || state.isSpectator || state.gamePhase !== 'in-game') return;
     send({ type: 'input', angle: state.mouseAngle, shoot: state.shooting });
   }, 1000 / 60);
 
-  // Ping loop — every 2s
   setInterval(() => {
     if (state.ws && state.ws.readyState === 1) {
       state.pingStart = performance.now();
       send({ type: 'ping' });
     }
   }, 2000);
+}
 
-  // Lobby refresh — every 3s while in lobby
-  setInterval(() => {
-    if (state.gamePhase === 'lobby') {
-      send({ type: 'list_rooms' });
+async function tryJoinFromURL() {
+  const code = state.pendingJoinCode;
+  if (!code) return;
+
+  try {
+    const res = await fetch(`${getBaseURL()}/api/room/${code}`);
+    const info = await res.json();
+    if (!info.exists) {
+      ui.showError('Room not found');
+      state.pendingJoinCode = null;
+      history.replaceState(null, '', '/');
+      ui.showHome(state.weaponDefs);
+      return;
     }
-  }, 3000);
+    ui.showInviteJoining(code);
+    send({ type: 'join_room', code, weapon: state.myWeapon });
+  } catch {
+    ui.showError('Failed to check room');
+    state.pendingJoinCode = null;
+    ui.showHome(state.weaponDefs);
+  }
 }
 
 function handleMessage(msg) {
   switch (msg.type) {
 
     case 'hello':
-      state.gamePhase = 'lobby';
+      setWireEncoding(msg.encoding || 'json');
+      state.gamePhase = 'home';
       state.weaponDefs = msg.weapons;
       state.availableWeapons = Object.keys(msg.weapons);
-      ui.showLobby(msg.weapons, msg.rooms || []);
+
+      if (state.pendingJoinCode) {
+        void tryJoinFromURL();
+      } else {
+        ui.showHome(msg.weapons);
+      }
+      break;
+
+    case 'encoding_changed':
+      setWireEncoding(msg.encoding || 'json');
       break;
 
     case 'room_created':
-      state.myId        = msg.playerId;
-      state.myWeapon    = msg.weapon;
-      state.currentRoom = { code: msg.code };
-      state.gamePhase   = 'waiting';
-      ui.showRoomWaiting(msg.code);
+      state.myId = msg.playerId;
+      state.myWeapon = msg.weapon;
+      state.isHost = true;
+      state.isSpectator = false;
+      state.pendingJoinCode = null;
+      state.currentRoom = { code: msg.code, inviteUrl: msg.inviteUrl };
+      state.gamePhase = 'lobby';
+      history.replaceState(null, '', `/play/${msg.code}`);
+      ui.showRoomLobby();
       break;
 
     case 'room_joined':
-      state.myId        = msg.playerId;
-      state.myWeapon    = msg.weapon;
+      state.myId = msg.playerId;
+      state.myWeapon = msg.weapon;
+      state.isSpectator = false;
+      state.pendingJoinCode = null;
       state.currentRoom = { code: msg.code };
-      state.gamePhase   = 'waiting';
-      ui.showRoomWaiting(msg.code);
+      state.gamePhase = 'lobby';
+      history.replaceState(null, '', `/play/${msg.code}`);
+      ui.showRoomLobby();
       break;
 
-    case 'room_list':
-      ui.updateRoomList(msg.rooms || []);
+    case 'room_spectated':
+      state.myId = msg.playerId;
+      state.isHost = false;
+      state.isSpectator = true;
+      state.pendingJoinCode = null;
+      state.currentRoom = { code: msg.code, inviteUrl: msg.inviteUrl };
+      state.gamePhase = 'lobby';
+      history.replaceState(null, '', `/play/${msg.code}`);
+      ui.showRoomLobby();
+      break;
+
+    case 'room_state':
+      state.roomState = msg;
+      state.isHost = (msg.hostId === state.myId);
+      if (state.myId) {
+        const me = msg.players.find(p => p.id === state.myId);
+        if (me) state.myName = me.name;
+      }
+      if (msg.phase === 'finished') {
+        if (state.matchResults) ui.showMatchResults(state.matchResults);
+        else ui.updateRoomLobby(msg);
+      } else if (state.gamePhase === 'in-game' && msg.phase === 'playing') {
+        ui.updateReconnectOverlay(msg);
+      } else {
+        ui.updateRoomLobby(msg);
+      }
+      break;
+
+    case 'room_closed':
+      ui.showRoomClosed(msg.message || 'Room closed');
+      break;
+
+    case 'room_left':
+      ui.goHome();
+      break;
+
+    case 'player_left':
+      ui.showPlayerLeft(msg.playerId);
+      break;
+
+    case 'room_config_update':
+      if (state.roomState) {
+        state.roomState.config = msg.config;
+        ui.updateRoomConfig(msg.config);
+      }
       break;
 
     case 'match_start':
       state.gamePhase = 'in-game';
+      state.pendingJoinCode = null;
+      document.getElementById('match-over-screen')?.remove();
       ui.showMatchStart(msg.players);
       break;
 
@@ -130,25 +229,23 @@ function handleMessage(msg) {
       break;
 
     case 'player_respawned':
-      // client handles visually via snapshot
       break;
 
-    case 'match_over':
-      state.gamePhase = 'finished';
-      ui.showMatchOver(msg.winnerId);
-      break;
-
-    case 'opponent_disconnected':
-      state.gamePhase = 'lobby';
-      ui.showDisconnected('opponent disconnected · reload to find a new match');
+    case 'match_results':
+      state.matchResults = msg;
+      ui.showMatchResults(msg);
       break;
 
     case 'pong':
       state.currentPing = Math.round(performance.now() - state.pingStart);
-      document.getElementById('ping-display').textContent = `ping: ${state.currentPing}ms`;
+      ui.updateWireEncoding(state.wireEncoding, state.currentPing);
       break;
 
     case 'error':
+      if (state.pendingJoinCode) {
+        state.pendingJoinCode = null;
+        ui.showHome(state.weaponDefs);
+      }
       ui.showError(msg.message);
       break;
   }

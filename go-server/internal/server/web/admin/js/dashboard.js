@@ -39,6 +39,7 @@ function connect() {
         
         // 1. Update Top HUD
         document.getElementById('val-strategy').textContent = data.strategy;
+        document.getElementById('val-encoding').textContent = data.encoding || 'json';
         document.getElementById('val-clients').textContent = data.clientCount;
         document.getElementById('val-rooms').textContent = data.roomCount;
         document.getElementById('val-goroutines').textContent = data.goroutines;
@@ -69,6 +70,15 @@ window.swapEngine = async (type) => {
         console.log(`Requested engine swap to: ${type}`);
     } catch (err) {
         console.error('Failed to swap engine', err);
+    }
+};
+
+window.swapEncoding = async (type) => {
+    try {
+        await fetch(`http://localhost:3000/admin/encoding?type=${type}`, { method: 'POST' });
+        console.log(`Requested encoding swap to: ${type}`);
+    } catch (err) {
+        console.error('Failed to swap encoding', err);
     }
 };
 

@@ -28,10 +28,11 @@ func (s *Server) HandleConnections(w http.ResponseWriter, r *http.Request) {
 	go s.db.UpdateLastLogin(context.Background(), claims.PlayerID)
 
 	client := &network.Client{
-		ID:      claims.PlayerID,
-		Manager: s.manager,
-		Conn:    ws,
-		Send:    make(chan []byte, 256),
+		ID:          claims.PlayerID,
+		DisplayName: claims.DisplayName,
+		Manager:     s.manager,
+		Conn:        ws,
+		Send:        make(chan network.Frame, 256),
 	}
 
 	log.Printf("Verified Player connected: %s (%s)", client.ID, claims.DisplayName)

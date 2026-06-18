@@ -2,74 +2,180 @@ import http from 'k6/http';
 import ws from 'k6/ws';
 import { sleep } from 'k6';
 
+// Config via k6 __ENV (command line -e, shell export, or ./run-loadtest.sh + loadtest.env)
+// See loadtest.env.sample
+const BASE = __ENV.BASE_URL || 'http://localhost:3000';
+const WS_BASE = BASE.replace(/^http/, 'ws');
+const MATCH_DURATION_MS = Number(__ENV.MATCH_DURATION_MS || 35000);
+const SCORE_LIMIT = Number(__ENV.SCORE_LIMIT || 3);
+const STAGGER_MAX_S = Number(__ENV.STAGGER_MAX_S || 5);
+
 export const options = {
-    vus: 100,         // UNLEASH THE HORDE (100 bots = 50 simultaneous matches)
-    duration: '45s', 
+  vus: Number(__ENV.VUS || 50),
+  duration: __ENV.DURATION || '45s',
+  thresholds: {
+    ws_connecting: ['rate>0.95'],
+    ws_msgs_received: ['count>0'],
+  },
 };
 
-export default function () {
-    // Stagger connections over 10 seconds to gently spin up the 50 rooms
-    sleep(Math.random() * 10); 
+function initGuest() {
+  const res = http.post(`${BASE}/api/init-guest`);
+  if (res.status !== 200) {
+    throw new Error(`init-guest failed: ${res.status}`);
+  }
+  return res.json();
+}
 
-    const res = http.post('http://localhost:3000/api/init-guest');
-    const token = res.json('token');
+function pickWeapon() {
+  const weapons = ['pistol', 'smg', 'shotgun'];
+  return weapons[Math.floor(Math.random() * weapons.length)];
+}
 
-    ws.connect(`ws://localhost:3000/ws?token=${token}`, null, function (socket) {
-        
-        socket.on('message', (rawMsg) => {
-            const msg = JSON.parse(rawMsg);
-            if (msg.type === 'snapshot' || msg.Type === 'snapshot') return;
-            
-            // 1. Handshake & Room Joining (Now battle-tested)
-            if (msg.type === 'room_list' || msg.type === 'hello') {
-                const rooms = msg.rooms || [];
-                let foundRoom = null;
-                
-                for (let r of rooms) {
-                    if (r.players < 2) {
-                        foundRoom = r.code;
-                        break;
-                    }
-                }
+function startCombatLoop(socket) {
+  let angle = Math.random() * Math.PI * 2;
+  let sweepDirection = Math.random() > 0.5 ? 1 : -1;
 
-                if (foundRoom) {
-                    socket.send(JSON.stringify({ type: 'join_room', code: foundRoom, weapon: 'smg' }));
-                } else {
-                    socket.send(JSON.stringify({ type: 'create_room', weapon: 'smg' }));
-                }
-            }
+  socket.setInterval(() => {
+    if (Math.random() < 0.05) {
+      angle = Math.random() * Math.PI * 2;
+      sweepDirection = Math.random() > 0.5 ? 1 : -1;
+    } else {
+      angle += 0.15 * sweepDirection;
+      if (Math.random() < 0.1) sweepDirection *= -1;
+    }
 
-            // 2. The Fierce Combat AI
-            if (msg.type === 'match_start') {
-                let angle = Math.random() * Math.PI * 2; // Start aiming in a random direction
-                let sweepDirection = 1;
-                
-                socket.setInterval(() => {
-                    // --- THE FIERCE AIMING LOGIC ---
-                    if (Math.random() < 0.05) {
-                        // 5% chance to perform an instant "Flick Shot" to a completely random angle
-                        angle = Math.random() * Math.PI * 2;
-                        sweepDirection = Math.random() > 0.5 ? 1 : -1;
-                    } else {
-                        // Otherwise, perform a "Sweeping Spray" (dragging the gun back and forth)
-                        angle += (0.15 * sweepDirection);
-                        if (Math.random() < 0.1) sweepDirection *= -1; // Randomly change sweep direction
-                    }
-                    
-                    // 90% chance to hold the trigger down, 10% chance to pause (simulates burst firing/reloading)
-                    const isShooting = Math.random() < 0.90; 
+    socket.send(JSON.stringify({
+      type: 'input',
+      angle,
+      shoot: Math.random() < 0.9,
+    }));
+  }, 33);
+}
 
-                    socket.send(JSON.stringify({ type: 'input', angle: angle, shoot: isShooting }));
-                }, 33); // 30 inputs per second
-            }
+function handleGameMessages(socket, msg, ctx) {
+  const { isHost, myId, matchStarted } = ctx;
 
-            // 3. Retry on collision
-            if (msg.type === 'error') {
-                sleep(1);
-                socket.send(JSON.stringify({ type: 'list_rooms' }));
-            }
-        });
+  switch (msg.type) {
+    case 'snapshot':
+    case 'pong':
+    case 'hit':
+    case 'player_died':
+    case 'player_respawned':
+      return;
 
-        socket.setTimeout(() => socket.close(), 40000);
+    case 'room_state': {
+      const connected = (msg.players || []).filter((p) => p.connected).length;
+      if (
+        isHost &&
+        !matchStarted.value &&
+        msg.phase === 'lobby' &&
+        connected >= 2 &&
+        msg.hostId === myId
+      ) {
+        matchStarted.value = true;
+        socket.send(JSON.stringify({ type: 'start_match' }));
+      }
+      break;
+    }
+
+    case 'match_start':
+      startCombatLoop(socket);
+      break;
+
+    case 'match_results':
+      socket.send(JSON.stringify({ type: 'leave_room' }));
+      sleep(0.2);
+      socket.close();
+      break;
+
+    case 'room_closed':
+    case 'room_left':
+      socket.close();
+      break;
+
+    case 'error':
+      console.warn(`[${isHost ? 'host' : 'guest'}] ${msg.message}`);
+      break;
+  }
+}
+
+function connectPlayer(token, handlers) {
+  ws.connect(`${WS_BASE}/ws?token=${token}`, null, (socket) => {
+    socket.on('message', (raw) => {
+      let msg;
+      try {
+        msg = JSON.parse(raw);
+      } catch {
+        return;
+      }
+      handlers.onMessage(socket, msg);
     });
+
+    socket.setTimeout(() => socket.close(), MATCH_DURATION_MS);
+  });
+}
+
+function spawnGuest(roomCode) {
+  const guest = initGuest();
+
+  connectPlayer(guest.token, {
+    onMessage(socket, msg) {
+      if (msg.type === 'hello') {
+        socket.send(JSON.stringify({
+          type: 'join_room',
+          code: roomCode,
+          weapon: pickWeapon(),
+        }));
+        return;
+      }
+
+      handleGameMessages(socket, msg, {
+        isHost: false,
+        myId: guest.player_id,
+        matchStarted: { value: false },
+      });
+    },
+  });
+}
+
+export default function () {
+  sleep(Math.random() * STAGGER_MAX_S);
+
+  const host = initGuest();
+  const hostId = { value: host.player_id };
+  const matchStarted = { value: false };
+  let guestSpawned = false;
+
+  connectPlayer(host.token, {
+    onMessage(socket, msg) {
+      if (msg.type === 'hello') {
+        socket.send(JSON.stringify({
+          type: 'create_room',
+          weapon: pickWeapon(),
+          scoreLimit: SCORE_LIMIT,
+          timeLimit: 5,
+          weaponMode: 'any',
+          map: 'arena',
+        }));
+        return;
+      }
+
+      if (msg.type === 'room_created') {
+        hostId.value = msg.playerId;
+        if (!guestSpawned) {
+          guestSpawned = true;
+          // Defer so the host socket keeps processing messages
+          socket.setTimeout(() => spawnGuest(msg.code), 50);
+        }
+        return;
+      }
+
+      handleGameMessages(socket, msg, {
+        isHost: true,
+        myId: hostId.value,
+        matchStarted,
+      });
+    },
+  });
 }

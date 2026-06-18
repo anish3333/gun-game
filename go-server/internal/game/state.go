@@ -81,14 +81,16 @@ type GameState struct {
 	Bullets         []*Bullet
 	Inputs          map[string]InputState
 	BulletIDCounter int
-	Physics         CollisionEngine // INJECTED STRATEGY
+	Physics         CollisionEngine
+	WinLimit        int
 }
 
 func NewGameState(physicsEngine CollisionEngine) *GameState {
 	return &GameState{
-		Players: make(map[string]*Player),
-		Inputs:  make(map[string]InputState),
-		Physics: physicsEngine,
+		Players:  make(map[string]*Player),
+		Inputs:   make(map[string]InputState),
+		Physics:  physicsEngine,
+		WinLimit: WinLimit,
 	}
 }
 
@@ -182,7 +184,7 @@ func (state *GameState) Tick() []GameEvent {
 
 					killer.Score++
 
-					if killer.Score >= WinLimit {
+					if killer.Score >= state.WinLimit {
 						events = append(events, GameEvent{
 							Type:     "match_over",
 							PlayerID: killer.ID,

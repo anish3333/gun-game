@@ -22,10 +22,14 @@ func main() {
 
 	physics := engine.NewBruteForceEngine()
 
+	encoding := cfg.DefaultEncoding
+
 	manager := network.NewManager(
 		database,
 		physics,
 		"BruteForce O(N²)",
+		cfg.BaseURL,
+		encoding,
 	)
 
 	manager.Telemetry = tracker
@@ -33,6 +37,7 @@ func main() {
 	tracker.GetRoomCount = manager.GetRoomCount
 	tracker.GetClientCount = manager.GetTotalClients
 	tracker.GetStrategy = manager.GetEngineName
+	tracker.GetEncoding = manager.GetCodecName
 
 	go tracker.Start()
 
@@ -43,7 +48,7 @@ func main() {
 		tracker,
 	)
 
-	log.Printf("Server listening on %s", cfg.Port)
+	log.Printf("Server listening on %s (encoding: %s)", cfg.Port, encoding)
 
 	log.Fatal(srv.Run())
 }

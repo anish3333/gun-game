@@ -8,7 +8,7 @@
     <style>
         body { font-family: monospace; background: #111; color: #eee; margin: 0; padding: 20px; }
         .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 20px; margin-bottom: 20px; }
-        .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; margin-bottom: 30px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 15px; margin-bottom: 30px; }
         .stat-box { background: #222; padding: 15px; border-radius: 6px; border: 1px solid #333; }
         .stat-value { font-size: 24px; font-weight: bold; color: #4af0c8; margin-top: 5px; }
         .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
@@ -29,11 +29,14 @@
         <div>
             <button onclick="swapEngine('spatial')">Enable Spatial Hash</button>
             <button onclick="swapEngine('brute')">Enable Brute Force</button>
+            <button onclick="swapEncoding('msgpack')">Enable MsgPack</button>
+            <button onclick="swapEncoding('json')">Enable JSON</button>
         </div>
     </div>
 
     <div class="stats-grid">
         <div class="stat-box">Strategy<div class="stat-value" id="val-strategy">-</div></div>
+        <div class="stat-box">Encoding<div class="stat-value" id="val-encoding">-</div></div>
         <div class="stat-box">Clients (CCU)<div class="stat-value" id="val-clients">0</div></div>
         <div class="stat-box">Active Rooms<div class="stat-value" id="val-rooms">0</div></div>
         <div class="stat-box">Goroutines<div class="stat-value" id="val-goroutines">0</div></div>
