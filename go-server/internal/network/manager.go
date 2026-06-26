@@ -22,6 +22,7 @@ type Manager struct {
 	BaseURL       string
 	Codec         codec.Codec
 	CodecName     string
+	PPOController *game.PPOController
 }
 
 func NewManager(database *db.Database, defaultEngine game.CollisionEngine, engineName string, baseURL string, encoding string) *Manager {

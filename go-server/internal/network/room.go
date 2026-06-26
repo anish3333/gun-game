@@ -29,6 +29,7 @@ type Room struct {
 	RematchVotes  map[string]bool
 	Manager       *Manager
 	State         *game.GameState
+	Controllers   map[string]game.Controller
 
 	Broadcast    chan IncomingMessage
 	Register     chan *Client
@@ -72,6 +73,7 @@ func NewRoom(id string, hostID string, config RoomConfig, m *Manager) *Room {
 		Leave:           make(chan string, 4),
 		quit:            make(chan struct{}),
 		reconnectTimers: make(map[string]*time.Timer),
+		Controllers:     make(map[string]game.Controller),
 		playerBuf:       make([]game.Player, 0, maxPlayers),
 		bulletBuf:       make([]game.Bullet, 0, 64),
 		snapshotBuf: SnapshotMessage{
@@ -119,9 +121,14 @@ func (r *Room) Run() {
 				if _, ok := r.State.Players[message.PlayerID]; !ok {
 					continue
 				}
-				r.State.Inputs[message.PlayerID] = game.InputState{
-					Angle: message.Angle,
-					Shoot: message.Shoot,
+
+				if controller, ok := r.Controllers[message.PlayerID]; ok {
+					if human, ok := controller.(*game.HumanController); ok {
+						human.Input = game.InputState{
+							Angle: message.Angle,
+							Shoot: message.Shoot,
+						}
+					}
 				}
 			}
 
@@ -133,6 +140,13 @@ func (r *Room) Run() {
 		case <-ticker.C:
 			if r.Phase != PhasePlaying {
 				continue
+			}
+
+			for id, controller := range r.Controllers {
+				if _, ok := r.State.Players[id]; !ok {
+					continue
+				}
+				r.State.Inputs[id] = controller.Tick(r.State, id)
 			}
 
 			start := time.Now()
@@ -190,9 +204,18 @@ func (r *Room) handleRegister(client *Client) {
 		IsHost:    client.ID == r.HostID,
 		Connected: true,
 	}
+	if _, ok := r.Controllers[client.ID]; !ok {
+		r.Controllers[client.ID] = &game.HumanController{}
+	}
 
-	log.Printf("[%s] %s joined (%s)", r.ID, client.ID, client.Weapon)
 	r.broadcastRoomStateLocked()
+	if r.Phase == PhasePlaying {
+		r.sendGameSyncTo(client)
+	}
+	if r.Config.BotEnabled && r.Phase == PhaseLobby && r.connectedCountLocked() >= 1 {
+		r.startMatchLocked(r.HostID)
+	}
+	log.Printf("[%s] %s joined (%s)", r.ID, client.ID, client.Weapon)
 }
 
 func (r *Room) RegisterSpectator(client *Client) {
@@ -232,6 +255,13 @@ func (r *Room) attachClient(client *Client) {
 		lp.ReconnectSeconds = 0
 		lp.ReconnectDeadline = time.Time{}
 	}
+}
+
+func (r *Room) SetController(playerID string, controller game.Controller) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.Controllers[playerID] = controller
 }
 
 func (r *Room) handleUnregister(client *Client) {
@@ -345,12 +375,19 @@ func (r *Room) notifyAfterPlayerGoneLocked(departedID string, wasHost bool) bool
 func (r *Room) handleStartMatch(hostID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.startMatchLocked(hostID)
+}
 
+func (r *Room) startMatchLocked(hostID string) bool {
 	if r.Phase != PhaseLobby || hostID != r.HostID {
-		return
+		return false
 	}
-	if r.connectedCountLocked() < 2 {
-		return
+	if r.Config.BotEnabled {
+		if r.connectedCountLocked() < 1 {
+			return false
+		}
+	} else if r.connectedCountLocked() < 2 {
+		return false
 	}
 
 	r.Phase = PhasePlaying
@@ -363,6 +400,9 @@ func (r *Room) handleStartMatch(hostID string) {
 	for id, lp := range r.Players {
 		if !lp.Connected {
 			continue
+		}
+		if _, ok := r.Controllers[id]; !ok {
+			r.Controllers[id] = &game.HumanController{}
 		}
 		spawnX := game.ArenaX + 140.0
 		if i == 1 {
@@ -383,10 +423,32 @@ func (r *Room) handleStartMatch(hostID string) {
 		i++
 	}
 
+	if r.Config.BotEnabled {
+		botID := r.ID + "-bot"
+		botController := game.Controller(&game.RandomController{})
+		if r.Manager.PPOController != nil {
+			botController = r.Manager.PPOController
+		}
+		r.Controllers[botID] = botController
+		weapon := game.Weapons["pistol"]
+		bot := &game.Player{
+			ID: botID, WeaponType: "pistol", Label: weapon.Label,
+			X:  game.ArenaX + game.ArenaW - 140.0,
+			Y:  game.ArenaY + (game.ArenaH / 2),
+			VX: (rand.Float64() - 0.5) * 1.5,
+			VY: (rand.Float64() - 0.5) * 1.5,
+			HP: 100, Alive: true,
+			FireTimer: int(float64(weapon.FireRate) * 0.5),
+		}
+		r.State.Players[botID] = bot
+		pArr = append(pArr, *bot)
+	}
+
 	startMsg := r.Manager.EncodeFrame(OutgoingMessage{Type: "match_start", Players: pArr})
 	r.sendToAllLocked(startMsg)
 	r.sendSnapshotLocked()
 	log.Printf("[%s] Match started", r.ID)
+	return true
 }
 
 func (r *Room) handleUpdateConfig(config RoomConfig) {
@@ -570,6 +632,7 @@ func (r *Room) removePlayerLocked(playerID string) {
 	delete(r.Players, playerID)
 	delete(r.RematchVotes, playerID)
 	delete(r.State.Players, playerID)
+	delete(r.Controllers, playerID)
 	r.cancelReconnectTimerLocked(playerID)
 }
 

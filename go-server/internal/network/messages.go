@@ -15,6 +15,7 @@ type IncomingMessage struct {
 	TimeLimit  *int   `json:"timeLimit,omitempty"`
 	WeaponMode string `json:"weaponMode,omitempty"`
 	Map        string `json:"map,omitempty"`
+	BotEnabled bool   `json:"botEnabled,omitempty"`
 }
 
 type OutgoingMessage struct {

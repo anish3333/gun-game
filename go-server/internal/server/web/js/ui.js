@@ -68,6 +68,7 @@ export function initUI() {
       timeLimit: parseInt(document.getElementById('cfg-time').value, 10),
       weaponMode: document.getElementById('cfg-weapon-mode').value,
       map: document.getElementById('cfg-map').value,
+      botEnabled: document.getElementById('cfg-bot-enabled').checked,
     });
   });
 

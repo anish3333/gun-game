@@ -194,6 +194,7 @@ func parseRoomConfig(msg IncomingMessage) RoomConfig {
 	if msg.Map != "" {
 		config.Map = msg.Map
 	}
+	config.BotEnabled = msg.BotEnabled
 	return config
 }
 

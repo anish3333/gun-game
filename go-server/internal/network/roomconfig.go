@@ -31,6 +31,7 @@ type RoomConfig struct {
 	TimeLimit  int    `json:"timeLimit"`
 	WeaponMode string `json:"weaponMode"`
 	Map        string `json:"map"`
+	BotEnabled bool   `json:"botEnabled"`
 }
 
 func DefaultRoomConfig() RoomConfig {
